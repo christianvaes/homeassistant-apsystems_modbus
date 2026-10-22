@@ -14,7 +14,7 @@ Before running:
     integration that polls it), preferably right after a scheduled poll.
   * One TCP connection, one request at a time, a one second pause between
     requests. About 15-20 requests in total.
-  * The JSON file contains serial numbers. Anonymise before sharing.
+  * Serial numbers are left out, so the JSON file can be shared as it is.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ LAST_REGISTER = 40261  # inclusive, never read beyond this
 BLOCK_SIZES = (125, 60, 30)  # tried in this order on the first unit
 PAUSE = 1.0  # seconds between requests
 TIMEOUT = float(os.environ.get("DUMP_TIMEOUT", "15"))  # seconds per request
+SERIAL_REGISTERS = range(40052, 40068)  # model 1 serial number, left out
 
 EXCEPTION_NAMES = {
     1: "illegal function",
@@ -290,6 +291,10 @@ def main() -> int:
                 unit_result["error"] = str(err)
                 client.connect()
                 break
+            values = [
+                0 if address + offset in SERIAL_REGISTERS else value
+                for offset, value in enumerate(values)
+            ]
             print(f"  {address}+{count} in {elapsed:.2f} s")
             print(fmt_block(address, values))
             unit_result["blocks"].append(

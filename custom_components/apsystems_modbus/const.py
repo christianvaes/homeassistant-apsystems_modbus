@@ -38,9 +38,8 @@ inverters, longer with more of them, and always before the next round."""
 MIN_POLL_GAP = 60
 """Shortest wait between two polls, also when a round is close."""
 
-SLOW_POLL = 40
-"""Seconds above which a poll counts as slow: the ECU struggles, so a write
-that is not needed right now waits."""
+SLOW_POLL_PER_UNIT = 5
+"""Seconds per inverter read above which a poll counts as slow (healthy: 2-4 s)."""
 
 POLL_BUDGET = 150
 """Seconds into a poll after which no further inverter is started, so a poll

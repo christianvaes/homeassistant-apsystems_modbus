@@ -30,7 +30,10 @@ async def test_diagnostics_are_redacted(
     assert "704000000001" not in text
     assert diagnostics["coordinator"]["available"] == [1, 2]
     assert set(diagnostics["coordinator"]["value_age_seconds"]) == {1, 2}
-    assert diagnostics["polling"] == {"settle_s": 38, "poll_healthy": True}
+    polling = diagnostics["polling"]
+    assert polling["settle_s"] == 38
+    assert polling["poll_healthy"] is True
+    assert polling["seconds_per_inverter"] >= 0
     assert diagnostics["inverter_output"] == {
         "enabled": True,
         "catch_up": False,

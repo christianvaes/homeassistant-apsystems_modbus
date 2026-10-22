@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Generator
 from datetime import datetime, timedelta
+import itertools
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
 from modbus_connection import ModbusTimeoutError
@@ -26,7 +27,6 @@ from homeassistant.components.switch import (
 )
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -108,7 +108,8 @@ async def test_on_by_default_and_nothing_written(
     freezer: FrozenDateTimeFactory,
 ) -> None:
     writes = conn_writes(mock_ecu)
-    await setup_entry(hass, mock_config_entry, freezer)
+    coordinator = await setup_entry(hass, mock_config_entry, freezer)
+    await poll(hass, coordinator)  # The capture reports 204 W.
     await at(hass, freezer, "11:05:00")
 
     assert hass.states.get(ENTITY).state == STATE_ON
@@ -236,7 +237,7 @@ async def test_no_write_at_night_then_after_the_first_poll_by_day(
     assert writes == [0]
 
 
-async def test_slow_ecu_raises_and_the_next_healthy_poll_sends_it(
+async def test_slow_ecu_keeps_off_and_the_next_healthy_poll_sends_it(
     hass: HomeAssistant,
     mock_ecu: MockModbusConnection,
     mock_config_entry: MockConfigEntry,
@@ -246,9 +247,7 @@ async def test_slow_ecu_raises_and_the_next_healthy_poll_sends_it(
     writes = conn_writes(mock_ecu)
     coordinator.poll_healthy = False
 
-    with pytest.raises(HomeAssistantError) as err:
-        await switch(hass, SERVICE_TURN_OFF)
-    assert err.value.translation_key == "inverter_output_pending"
+    await switch(hass, SERVICE_TURN_OFF)
     assert hass.states.get(ENTITY).state == STATE_OFF
 
     # The clock write waits too while the ECU struggles.
@@ -261,7 +260,7 @@ async def test_slow_ecu_raises_and_the_next_healthy_poll_sends_it(
     assert writes == [0]
 
 
-async def test_unanswered_write_raises_and_frees_the_link_later(
+async def test_unanswered_write_keeps_off_and_frees_the_link_later(
     hass: HomeAssistant,
     mock_ecu: MockModbusConnection,
     mock_config_entry: MockConfigEntry,
@@ -271,8 +270,7 @@ async def test_unanswered_write_raises_and_frees_the_link_later(
     unit = mock_ecu.for_unit(1)
     unit.fail_write(GRID_CONNECTION_ADDRESS, ModbusTimeoutError())
 
-    with pytest.raises(HomeAssistantError):
-        await switch(hass, SERVICE_TURN_OFF)
+    await switch(hass, SERVICE_TURN_OFF)
     assert coordinator.link_busy
     assert coordinator.inverter_output.last_result == "ModbusTimeoutError"
 
@@ -512,30 +510,21 @@ async def test_inverter_that_starts_while_off_is_turned_off_after_the_poll(
     assert not any("703000000002" in line for line in lines)
 
 
-async def test_off_inverters_reading_a_few_watts_need_no_write(
+@pytest.mark.parametrize(
+    "watts", [{1: 3.0, 2: 10.0}, {2: 65000.0}], ids=["a_few_watts", "impossible"]
+)
+async def test_off_inverters_reading_no_real_power_need_no_write(
     hass: HomeAssistant,
     mock_ecu: MockModbusConnection,
     mock_config_entry: MockConfigEntry,
     freezer: FrozenDateTimeFactory,
+    watts: dict[int, float],
 ) -> None:
     coordinator = await setup_entry(hass, mock_config_entry, freezer)
     writes = await off_and_quiet(hass, mock_ecu)
 
-    set_power(mock_ecu, {1: 3.0, 2: 10.0})
+    set_power(mock_ecu, watts)
     await poll(hass, coordinator)
-    assert writes == []
-
-
-async def test_power_while_on_writes_nothing(
-    hass: HomeAssistant,
-    mock_ecu: MockModbusConnection,
-    mock_config_entry: MockConfigEntry,
-    freezer: FrozenDateTimeFactory,
-) -> None:
-    coordinator = await setup_entry(hass, mock_config_entry, freezer)
-    writes = conn_writes(mock_ecu)
-
-    await poll(hass, coordinator)  # The capture reports 204 W.
     assert writes == []
 
 
@@ -549,7 +538,7 @@ async def test_power_after_a_slow_poll_waits_for_the_clock(
     writes = await off_and_quiet(hass, mock_ecu)
 
     set_power(mock_ecu, {2: 26.0})
-    with patch("custom_components.apsystems_modbus.coordinator.SLOW_POLL", -1):
+    with patch("custom_components.apsystems_modbus.coordinator.SLOW_POLL_PER_UNIT", -1):
         await poll(hass, coordinator)
     assert not coordinator.poll_healthy
     assert writes == []
@@ -571,21 +560,23 @@ async def test_power_at_night_writes_nothing(
     assert writes == []
 
 
-async def test_only_inverters_read_in_the_last_poll_count(
+async def test_old_values_of_a_silent_inverter_do_not_count(
     hass: HomeAssistant,
     mock_ecu: MockModbusConnection,
     mock_config_entry: MockConfigEntry,
     freezer: FrozenDateTimeFactory,
 ) -> None:
     coordinator = await setup_entry(hass, mock_config_entry, freezer)
-    await off_and_quiet(hass, mock_ecu)
+    writes = await off_and_quiet(hass, mock_ecu)
     set_power(mock_ecu, {2: 26.0})
-    await poll(hass, coordinator)
+    mock_ecu.for_unit(2).fail_requests(ModbusTimeoutError())
+    await poll(hass, coordinator)  # unit 2 goes silent before it is read
 
-    coordinator.data.available = {1}
-    assert coordinator.inverter_output._delivering() == []
-    coordinator.data.available = {1, 2}
-    assert coordinator.inverter_output._delivering() == [(2, 26.0)]
+    # Unit 2 keeps its old reading of 204 W from the setup; only this poll's
+    # reads count, so nothing is written.
+    await poll(hass, coordinator)
+    assert coordinator.poll_healthy
+    assert writes == []
 
 
 async def test_due_write_and_power_give_one_write(
@@ -642,15 +633,128 @@ async def test_setting_the_limit_does_not_reuse_the_last_poll(
     assert writes == [0]
 
 
-async def test_impossible_power_is_no_leak(
+async def test_one_silent_inverter_does_not_stop_the_output(
     hass: HomeAssistant,
     mock_ecu: MockModbusConnection,
     mock_config_entry: MockConfigEntry,
     freezer: FrozenDateTimeFactory,
 ) -> None:
     coordinator = await setup_entry(hass, mock_config_entry, freezer)
-    writes = await off_and_quiet(hass, mock_ecu)
+    mock_ecu.for_unit(2).fail_requests(ModbusTimeoutError())
 
-    set_power(mock_ecu, {2: 65000.0})
+    # The poll in which unit 2 first goes silent is not healthy.
     await poll(hass, coordinator)
-    assert writes == []
+    assert not coordinator.poll_healthy
+
+    # From then on it is read last and no longer counts.
+    await poll(hass, coordinator)
+    assert coordinator.poll_healthy
+    assert coordinator.data.available == {1}
+
+    writes = conn_writes(mock_ecu)
+    await switch(hass, SERVICE_TURN_OFF)
+    set_power(mock_ecu, {1: 0.0})
+    await at(hass, freezer, "11:05:00")
+    assert writes == [0, 0]
+
+
+async def test_health_of_the_last_poll_holds_during_a_poll(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    coordinator = await setup_entry(hass, mock_config_entry, freezer)
+    assert coordinator.poll_healthy
+    seen: list[bool] = []
+    read_first = coordinator.inverters[1].async_poll
+
+    async def first(*args: object, **kwargs: object) -> object:
+        seen.append(coordinator.poll_healthy)
+        return await read_first(*args, **kwargs)
+
+    with patch.object(coordinator.inverters[1], "async_poll", first):
+        await poll(hass, coordinator)
+    assert seen[0] is True
+
+
+async def test_time_allowed_grows_with_the_inverters_read(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    coordinator = await setup_entry(hass, mock_config_entry, freezer)
+    clock = "custom_components.apsystems_modbus.coordinator.monotonic"
+
+    # Two inverters may take 10 s together.
+    ticks = itertools.count(0, 2)
+    with patch(clock, lambda: next(ticks)):
+        await poll(hass, coordinator)
+    assert coordinator.poll_healthy
+
+    ticks = itertools.count(0, 10)
+    with patch(clock, lambda: next(ticks)):
+        await poll(hass, coordinator)
+    assert not coordinator.poll_healthy
+
+
+async def test_unanswered_write_after_the_reads_makes_the_poll_unhealthy(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    coordinator = await setup_entry(hass, mock_config_entry, freezer)
+    await switch(hass, SERVICE_TURN_OFF)
+    set_power(mock_ecu, {1: 40.0})  # unit 1 started again
+    mock_ecu.for_unit(1).fail_write(GRID_CONNECTION_ADDRESS, ModbusTimeoutError())
+    await poll(hass, coordinator)
+    assert not coordinator.poll_healthy
+
+
+async def test_silent_lead_blocks_the_writes_that_can_wait(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    coordinator = await setup_entry(hass, mock_config_entry, freezer)
+    await switch(hass, SERVICE_TURN_OFF)
+    mock_ecu.for_unit(1).fail_requests(ModbusTimeoutError())
+    for _ in range(3):
+        await poll(hass, coordinator)
+    assert not coordinator.poll_healthy
+
+    # Every write goes through the lead: nothing is sent while it is silent.
+    with patch.object(
+        coordinator.lead, "async_set_grid_connection", AsyncMock()
+    ) as write:
+        set_power(mock_ecu, {2: 40.0})
+        await poll(hass, coordinator)
+        await at(hass, freezer, "11:05:00")
+    write.assert_not_awaited()
+
+
+async def test_writes_go_before_a_unit_that_was_silent(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    coordinator = await setup_entry(hass, mock_config_entry, freezer)
+    await switch(hass, SERVICE_TURN_OFF)
+    mock_ecu.for_unit(2).fail_requests(ModbusTimeoutError())
+    await poll(hass, coordinator)  # unit 2 goes silent and is read last now
+    order: list[str] = []
+    read_second = coordinator.inverters[2].async_poll
+
+    async def second(*args: object, **kwargs: object) -> object:
+        order.append("read 2")
+        return await read_second(*args, **kwargs)
+
+    mock_ecu.for_unit(1).on_write(lambda event: order.append("write"))
+    set_power(mock_ecu, {1: 40.0})  # unit 1 started again
+    with patch.object(coordinator.inverters[2], "async_poll", second):
+        await poll(hass, coordinator)
+    assert order == ["write", "read 2"]

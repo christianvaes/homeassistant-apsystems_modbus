@@ -69,6 +69,7 @@ async def test_inverter_sensors(
     assert float(hass.states.get(f"{prefix}temperature").state) == 24.0
     assert hass.states.get(f"{prefix}status").state == "mppt"
     assert hass.states.get(f"{prefix}event_code").state == "ok"
+    assert "state_class" not in hass.states.get(f"{prefix}energy_today").attributes
     # States carry no float32 noise: at most three decimals.
     for key in (
         "ac_current",
@@ -299,20 +300,6 @@ async def test_energy_today_follows_the_ecu_and_lifetime_stays_guarded(
     assert (
         float(hass.states.get("sensor.apsystems_ecu_lifetime_energy").state) == lifetime
     )
-
-
-async def test_energy_today_has_no_statistics(
-    hass: HomeAssistant,
-    mock_ecu: MockModbusConnection,
-    mock_config_entry: MockConfigEntry,
-) -> None:
-    await setup_entry(hass, mock_config_entry)
-
-    for entity_id in (
-        "sensor.apsystems_ecu_energy_today",
-        "sensor.inverter_704000000001_energy_today",
-    ):
-        assert "state_class" not in hass.states.get(entity_id).attributes, entity_id
 
 
 async def test_impossible_daily_counter_is_left_out(

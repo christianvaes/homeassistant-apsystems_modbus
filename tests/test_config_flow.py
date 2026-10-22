@@ -77,6 +77,7 @@ async def test_user_flow_with_search(
         CONF_PORT: 502,
         CONF_INVERTERS: INVERTERS,
     }
+    assert result["options"] == {}
 
 
 async def test_user_flow_with_addresses(
@@ -263,6 +264,7 @@ async def test_reconfigure(
     mock_config_entry.add_to_hass(hass)
     result = await mock_config_entry.start_reconfigure_flow(hass)
     assert result["step_id"] == "reconfigure"
+    assert result["data_schema"]({})[CONF_UNIT_IDS] == "1, 2"
 
     result = await submit_and_wait(
         hass,
@@ -602,15 +604,20 @@ async def test_search_finds_more_than_32_inverters(
     assert result["description_placeholders"]["count"] == "40"
 
 
+@pytest.mark.parametrize("unit_ids", ["", "1-2"], ids=["search", "addresses"])
 async def test_identity_is_one_read_per_inverter(
-    hass: HomeAssistant, mock_ecu: MockModbusConnection
+    hass: HomeAssistant, mock_ecu: MockModbusConnection, unit_ids: str
 ) -> None:
     result = await start_user_flow(hass)
-    await submit_and_wait(hass, result["flow_id"], {**USER_INPUT, CONF_UNIT_IDS: "1-2"})
+    result = await submit_and_wait(
+        hass, result["flow_id"], {**USER_INPUT, CONF_UNIT_IDS: unit_ids}
+    )
+    assert result["description_placeholders"]["count"] == "2"
 
-    spans_2 = [(e.address, e.count) for e in mock_ecu.for_unit(2).read_events]
-    assert len(spans_2) == 1
-    assert spans_2[0][0] == 40000
+    # One read finds the inverter and tells what it is.
+    reads_2 = [(e.address, e.count) for e in mock_ecu.for_unit(2).read_events]
+    assert len(reads_2) == 1
+    assert reads_2[0][0] == 40000
     # The controls header is checked once, on the first inverter.
     assert (40184, 1) in [
         (e.address, e.count) for e in mock_ecu.for_unit(1).read_events
@@ -655,18 +662,6 @@ async def test_slow_identity_gets_three_tries(
     assert result["description_placeholders"]["count"] == "2"
 
 
-async def test_search_reads_each_address_once(
-    hass: HomeAssistant, mock_ecu: MockModbusConnection
-) -> None:
-    result = await start_user_flow(hass)
-    result = await submit_and_wait(hass, result["flow_id"], USER_INPUT)
-    assert result["description_placeholders"]["count"] == "2"
-
-    # One read finds the inverter and tells what it is.
-    reads_2 = [e.address for e in mock_ecu.for_unit(2).read_events]
-    assert reads_2 == [40000]
-
-
 async def test_silent_inverter_during_search_is_left_out(
     hass: HomeAssistant, mock_ecu: MockModbusConnection
 ) -> None:
@@ -701,16 +696,6 @@ async def test_installation_power_at_setup(
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["options"] == {"installation_power": 1.5}
-
-
-async def test_setup_without_installation_power_has_no_option(
-    hass: HomeAssistant, mock_ecu: MockModbusConnection
-) -> None:
-    result = await start_user_flow(hass)
-    result = await submit_and_wait(hass, result["flow_id"], USER_INPUT)
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["options"] == {}
 
 
 async def test_options_installation_power(
@@ -750,16 +735,6 @@ async def test_example_uses_a_decimal_comma(
     result = await start_user_flow(hass)
     result = await submit_and_wait(hass, result["flow_id"], USER_INPUT)
     assert result["description_placeholders"]["ds3_l_kw"] == "1,5"
-
-
-async def test_reconfigure_keeps_the_addresses(
-    hass: HomeAssistant,
-    mock_ecu: MockModbusConnection,
-    mock_config_entry: MockConfigEntry,
-) -> None:
-    mock_config_entry.add_to_hass(hass)
-    result = await mock_config_entry.start_reconfigure_flow(hass)
-    assert result["data_schema"]({})[CONF_UNIT_IDS] == "1, 2"
 
 
 async def test_reconfigure_after_a_new_address_searches_afresh(

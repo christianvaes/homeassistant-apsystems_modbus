@@ -101,17 +101,11 @@
     "no_inverter_answered": {
       "message": "Kein Wechselrichter hat geantwortet. Die ECU ist vielleicht beschäftigt. Bei der nächsten Abfrage wird es erneut versucht."
     },
-    "power_limit_pending": {
-      "message": "Die ECU hat die Leistungsbegrenzung von {percent} % noch nicht übernommen. Die Integration schreibt sie bei der nächsten Abfrage erneut. Bis dahin zeigt der Schieberegler, was die ECU meldet."
-    },
     "power_limit_invalid": {
       "message": "{value} ist keine gültige Leistungsbegrenzung. Gib eine ganze Zahl von 0 bis 100 ein."
     },
     "limit_maybe_active": {
       "message": "Die APsystems ECU konnte beim Entfernen der Integration nicht geprüft werden. Falls eine Leistungsbegrenzung eingestellt war, sind die Wechselrichter möglicherweise noch begrenzt. Füge die Integration erneut hinzu und stelle die Leistungsbegrenzung auf 100 %."
-    },
-    "inverter_output_pending": {
-      "message": "Die Wechselrichter konnten noch nicht ausgeschaltet werden, weil die ECU beschäftigt ist. Die Integration sendet den Befehl innerhalb von fünf Minuten erneut."
     },
     "output_maybe_off": {
       "message": "Die APsystems ECU war beim Entfernen der Integration nicht erreichbar. Inverter output war ausgeschaltet. Eine ECU-R schaltet die Wechselrichter innerhalb von zehn Minuten von selbst wieder ein. Bleiben sie aus, schalte die ECU kurz aus und wieder ein."
@@ -141,6 +135,10 @@
     "addresses_changed": {
       "title": "Wechselrichter hat eine neue Adresse",
       "description": "Wechselrichter {id} hat in den Modbus settings von EMA Manager eine neue Adresse bekommen ({old} → {new}). Bis du das übernimmst, sind seine Werte nicht verfügbar. Wähle Neu konfigurieren im Menü dieser Integration. Geräte und Verlauf bleiben erhalten."
+    },
+    "ecu_not_answering": {
+      "title": "Die APsystems ECU antwortet nicht",
+      "description": "Die ECU antwortet seit zwei Stunden nicht. Prüfe, ob sie Strom hat und per Netzwerkkabel verbunden ist, ob ihre IP-Adresse noch stimmt (Neu konfigurieren im Menü dieser Integration) und ob Modbus in EMA Manager noch eingeschaltet ist. Dieser Hinweis verschwindet, sobald die ECU wieder antwortet."
     }
   }
 }

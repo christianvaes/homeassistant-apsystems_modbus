@@ -101,17 +101,11 @@
     "no_inverter_answered": {
       "message": "Aucun onduleur n'a répondu. L'ECU est peut-être occupée. Nouvelle tentative à la prochaine interrogation."
     },
-    "power_limit_pending": {
-      "message": "L'ECU n'a pas encore appliqué la limite de puissance de {percent} %. L'intégration la renvoie à la prochaine interrogation. D'ici là, le curseur affiche ce que l'ECU indique."
-    },
     "power_limit_invalid": {
       "message": "{value} n'est pas une limite de puissance valide. Saisissez un nombre entier de 0 à 100."
     },
     "limit_maybe_active": {
       "message": "L'ECU APsystems n'a pas pu être vérifiée lors de la suppression de l'intégration. Si une limite de puissance était réglée, les onduleurs sont peut-être encore limités. Ajoutez à nouveau l'intégration et réglez la limite de puissance sur 100 %."
-    },
-    "inverter_output_pending": {
-      "message": "Les onduleurs n'ont pas encore pu être arrêtés, car l'ECU est occupée. L'intégration renvoie la commande dans les cinq minutes."
     },
     "output_maybe_off": {
       "message": "L'ECU APsystems n'était pas joignable lors de la suppression de l'intégration. Inverter output était désactivé. Une ECU-R remet les onduleurs en marche d'elle-même en dix minutes. S'ils restent arrêtés, éteignez puis rallumez l'ECU."
@@ -141,6 +135,10 @@
     "addresses_changed": {
       "title": "L'onduleur a une nouvelle adresse",
       "description": "L'onduleur {id} a reçu une nouvelle adresse dans Modbus settings d'EMA Manager ({old} → {new}). Ses valeurs restent indisponibles jusqu'à ce que vous preniez ce changement en compte. Choisissez Reconfigurer dans le menu de cette intégration. Les appareils et l'historique sont conservés."
+    },
+    "ecu_not_answering": {
+      "title": "L'ECU APsystems ne répond pas",
+      "description": "L'ECU ne répond plus depuis deux heures. Vérifiez qu'elle est alimentée et branchée avec un câble réseau, que son adresse IP est toujours correcte (Reconfigurer dans le menu de cette intégration) et que Modbus est toujours activé dans EMA Manager. Ce message disparaît dès que l'ECU répond à nouveau."
     }
   }
 }

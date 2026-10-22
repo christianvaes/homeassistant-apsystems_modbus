@@ -78,10 +78,6 @@ def ecu_day(now: datetime) -> date:
     return (now - ECU_DAY_START).date()
 
 
-def _store(hass: HomeAssistant, ecu_key: str) -> Store[_StoredLedger]:
-    return Store(hass, STORAGE_VERSION, f"{DOMAIN}.{ecu_key}")
-
-
 async def async_stored_lifetime(hass: HomeAssistant, ecu_key: str) -> float | None:
     """Return the stored lifetime energy of an ECU in Wh, if any."""
     ledger = EnergyLedger(hass, ecu_key)
@@ -108,7 +104,9 @@ class EnergyLedger:
 
     def __init__(self, hass: HomeAssistant, ecu_key: str) -> None:
         """Prepare the ledger for the ECU identified by ``ecu_key``."""
-        self._store = _store(hass, ecu_key)
+        self._store: Store[_StoredLedger] = Store(
+            hass, STORAGE_VERSION, f"{DOMAIN}.{ecu_key}"
+        )
         self._saved: _StoredLedger | None = None
         """What was last loaded or written, so an unchanged state is not."""
         self._counters: dict[str, _Counter] = {}

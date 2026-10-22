@@ -474,7 +474,9 @@ class ApsystemsModbusConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.debug("Search stopped: %s", err)
             raise ProbeError("unsupported_layout") from err
         except ModbusConnectionError as err:
-            _LOGGER.debug("Search stopped by a connection error: %r", err)
+            _LOGGER.debug(
+                "Search stopped by a connection error: %s", type(err).__name__
+            )
             reason = "modbus_disabled" if _is_refused(err) else "cannot_connect"
             raise ProbeError(reason) from err
         except ModbusTimeoutError as err:
@@ -696,8 +698,7 @@ class ApsystemsModbusConfigFlow(ConfigFlow, domain=DOMAIN):
     # ---- helpers ---------------------------------------------------------
 
     @staticmethod
-    def _connection_schema(defaults: Mapping[str, Any] | None) -> probatio.Schema:
-        defaults = defaults or {}
+    def _connection_schema(defaults: Mapping[str, Any]) -> probatio.Schema:
         return probatio.Schema(
             {
                 probatio.Required(

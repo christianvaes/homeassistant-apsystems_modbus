@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import timedelta
 import itertools
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -27,6 +28,7 @@ from custom_components.apsystems_modbus.const import (
     CONF_MODEL,
     CONF_SERIAL_NUMBER,
     CONF_UNIT_ID,
+    DOMAIN,
     POLL_BUDGET,
     ROUND_PERIOD,
 )
@@ -146,18 +148,6 @@ async def test_refused_ecu_does_not_hold_up_the_start(
     assert mock_config_entry.runtime_data.last_update_success is False
 
 
-async def test_unload(
-    hass: HomeAssistant,
-    mock_ecu: MockModbusConnection,
-    mock_config_entry: MockConfigEntry,
-) -> None:
-    await setup_entry(hass, mock_config_entry)
-
-    assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
-    await hass.async_block_till_done(wait_background_tasks=True)
-    assert mock_config_entry.state is ConfigEntryState.NOT_LOADED
-
-
 def four_inverter_entry(mock_ecu: MockModbusConnection) -> MockConfigEntry:
     """An entry for the mock ECU with inverters on units 1 to 4."""
     inverters = list(INVERTERS)
@@ -217,8 +207,9 @@ async def test_first_timeout_ends_the_cycle_and_backs_off(
 
     # Units 2 and 3 stay silent. Once both are known, they are read last,
     # one per poll, so units 1 and 4 come through in full and the poll
-    # counts as complete again.
-    for _ in range(2):
+    # counts as complete again. A poll in which nothing answered marks no
+    # unit, so knowing both takes a poll more than one per unit.
+    for _ in range(3):
         await coordinator.async_refresh()
     reads = record_reads(mock_ecu)
     await coordinator.async_refresh()
@@ -270,8 +261,9 @@ async def test_the_poll_budget_ends_a_slow_cycle(
     coordinator = entry.runtime_data
     reads = record_reads(mock_ecu)
 
-    # The clock read at the start, then before units 1, 2 and 3.
-    clock = iter([0.0, 0.0, 70.0, POLL_BUDGET])
+    # The clock read at the start, then before units 1, 2 and 3; it stays at
+    # the budget for any later reading.
+    clock = itertools.chain([0.0, 0.0, 70.0], itertools.repeat(POLL_BUDGET))
     with patch(
         "custom_components.apsystems_modbus.coordinator.monotonic",
         lambda: next(clock),
@@ -816,6 +808,7 @@ async def test_totals_reach_storage(
     # ... and right away when the integration unloads.
     mock_config_entry.runtime_data.ledger.record_power(9999)
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
+    assert mock_config_entry.state is ConfigEntryState.NOT_LOADED
     assert hass_storage[key]["data"]["peak_power"] == 9999
 
 
@@ -918,3 +911,111 @@ async def test_an_unanswered_write_ends_the_cycle(
     assert len(coordinator.data.available) == 1
     assert coordinator.data.ended_in_timeout
     assert coordinator.link_busy is False  # the link was opened fresh
+
+
+async def test_timeout_after_reconnecting_marks_the_link_busy(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    await setup_entry(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data
+    first = coordinator.inverters[1]
+    calls: list[int] = []
+
+    # The connection is dead, and the fresh one gets no answer either.
+    async def dead_then_silent(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        if len(calls) == 1:
+            raise ModbusConnectionError("connection reset by peer")
+        raise ModbusTimeoutError("no answer")
+
+    busy_when_dropped: list[bool] = []
+    drop = coordinator._async_drop_link
+
+    async def spy_drop() -> None:
+        busy_when_dropped.append(coordinator.link_busy)
+        await drop()
+
+    with (
+        patch.object(first, "async_poll", dead_then_silent),
+        patch.object(coordinator, "_async_drop_link", spy_drop),
+    ):
+        await coordinator.async_refresh()
+
+    assert coordinator.data.ended_in_timeout
+    # Dropped once to reconnect, and once at the end while marked busy.
+    assert busy_when_dropped[-1] is True
+
+
+async def test_connection_errors_leave_the_address_out_of_the_log(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await setup_entry(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data
+    caplog.set_level(logging.DEBUG, logger="custom_components.apsystems_modbus")
+    for unit_id in (1, 2):
+        mock_ecu.for_unit(unit_id).fail_requests(
+            ModbusConnectionError("could not connect to 192.0.2.10:502")
+        )
+    await coordinator.async_refresh()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    lines = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name.startswith("custom_components.apsystems_modbus")
+    ]
+    assert any("ModbusConnectionError" in line for line in lines)
+    assert not any("192.0.2.10" in line for line in lines)
+
+
+async def test_a_silent_ecu_marks_no_single_unit(
+    hass: HomeAssistant, mock_ecu: MockModbusConnection
+) -> None:
+    entry = four_inverter_entry(mock_ecu)
+    await setup_entry(hass, entry)
+    coordinator = entry.runtime_data
+    for unit_id in (1, 2, 3, 4):
+        mock_ecu.for_unit(unit_id).fail_requests(ModbusTimeoutError())
+    for _ in range(4):
+        await coordinator.async_refresh()
+
+    # When the ECU answers again, the poll is judged on all inverters.
+    for unit_id in (1, 2, 3, 4):
+        mock_ecu.for_unit(unit_id).fail_requests(None)
+    await coordinator.async_refresh()
+    assert coordinator.data.available == {1, 2, 3, 4}
+    assert coordinator.poll_healthy
+
+
+async def test_long_silence_of_the_ecu_shows_a_notice(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    await setup_entry(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data
+    issues = ir.async_get(hass)
+    issue_id = f"ecu_not_answering_{mock_config_entry.entry_id}"
+    for unit_id in (1, 2):
+        mock_ecu.for_unit(unit_id).fail_requests(ModbusTimeoutError())
+
+    # Half an hour of silence is normal for this ECU: no notice yet.
+    await coordinator.async_refresh()
+    freezer.tick(timedelta(minutes=30))
+    await coordinator.async_refresh()
+    assert issues.async_get_issue(DOMAIN, issue_id) is None
+
+    freezer.tick(timedelta(hours=2))
+    await coordinator.async_refresh()
+    assert issues.async_get_issue(DOMAIN, issue_id) is not None
+
+    for unit_id in (1, 2):
+        mock_ecu.for_unit(unit_id).fail_requests(None)
+    await coordinator.async_refresh()
+    assert issues.async_get_issue(DOMAIN, issue_id) is None

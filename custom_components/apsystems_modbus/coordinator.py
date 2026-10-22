@@ -32,7 +32,7 @@ from .const import (
     SETTLE_BASE,
     SETTLE_MAX,
     SETTLE_PER_INVERTER,
-    SLOW_POLL,
+    SLOW_POLL_PER_UNIT,
     VALUE_MAX_AGE,
 )
 from .ecu import REQUEST_TIMEOUT, Inverter
@@ -48,6 +48,15 @@ type ApsystemsConfigEntry = ConfigEntry[EcuCoordinator]
 def new_address_issue_id(entry_id: str) -> str:
     """Return the repair issue id telling that an inverter got a new address."""
     return f"addresses_changed_{entry_id}"
+
+
+def silent_issue_id(entry_id: str) -> str:
+    """Return the repair issue id telling that the ECU stopped answering."""
+    return f"ecu_not_answering_{entry_id}"
+
+
+SILENT_NOTICE = timedelta(hours=2)
+"""How long the ECU may stay silent before the user is told."""
 
 
 def settle_time(inverters: int) -> int:
@@ -101,10 +110,9 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
     one whose turn is longest ago first. An unanswered inverter ends the
     cycle, because the ECU is still busy with it and every further request
     would only queue up behind it. From then on that inverter comes last,
-    after the power limit has been taken care of, so a broken one never holds
-    the others or a write up. After ``POLL_BUDGET`` no further inverter is
-    started. A pending write is let through between two reads via
-    ``write_lock``.
+    after the writes that can wait, so a broken one never holds the others or
+    a write up. After ``POLL_BUDGET`` no further inverter is started. A
+    pending write is let through between two reads via ``write_lock``.
 
     The ECU fetches new values from the inverters every five minutes, on the
     clock. Every cycle plans the next one just after the coming round, so new
@@ -145,8 +153,9 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         Cleared when the link is opened fresh. Until then a write is refused.
         """
         self.poll_healthy = False
-        """Whether the last cycle read every inverter in time and without an
-        unanswered request. Writes that can wait only go after such a cycle."""
+        """Verdict of ``_judge`` on the last poll; writes that can wait need it."""
+        self.seconds_per_inverter: float | None = None
+        """Read time per inverter in the last poll, for diagnostics."""
         self.ecu_device_id: str | None = None
         """Device registry id of the ECU, set once the device is registered."""
         self.serials: dict[int, str] = {
@@ -172,6 +181,7 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         """The ECU struggled in the last cycle: read mostly measurements."""
         self._silent = False
         """Nothing answered in the last cycle."""
+        self._silent_since: datetime | None = None
         self._reconnected = False
         self._turns = 0
         self._last_turn: dict[int, int] = {}
@@ -187,16 +197,11 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         self._last_change: datetime | None = None
 
     async def _async_update_data(self) -> EcuData:
-        self.poll_healthy = False
-        started = self.hass.loop.time()
-        data = await self._async_read_cycle()
-        self.poll_healthy = (
-            bool(data.available)
-            and not data.cut_short
-            and not data.ended_in_timeout
-            and self.hass.loop.time() - started <= SLOW_POLL
-        )
-        return data
+        try:
+            return await self._async_read_cycle()
+        except BaseException:
+            self.poll_healthy = False
+            raise
 
     # Reads the inverters in turn, within the budget, and finishes the cycle.
     async def _async_read_cycle(self) -> EcuData:
@@ -210,17 +215,18 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
             async with self.write_lock:
                 await self._async_drop_link()
         self._reconnected = False
-        limit_done = False
+        writes_done = False
+        stuck_before = set(self._stuck)
         lead = self.lead.unit_id
         waiting = self._poll_order()
         while waiting:
             unit_id = waiting[0]
-            if unit_id in self._stuck and lead not in waiting and not limit_done:
+            if unit_id in self._stuck and lead not in waiting and not writes_done:
                 # Writes go before the inverters that went unanswered last
                 # time, so they never queue up behind one of them. The lead
-                # has had its turn by then, since the limit is read from it.
-                await self.power_limit.async_after_poll(data)
-                limit_done = True
+                # has had its turn by then, since every write goes through it.
+                await self._async_after_reads(data, started, waiting)
+                writes_done = True
             if self.link_busy:
                 # A write went unanswered: the ECU still works on it.
                 data.ended_in_timeout = True
@@ -230,50 +236,90 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
                 _LOGGER.debug("Poll budget used up; units %s wait", waiting)
                 break
             waiting.pop(0)
-            inverter = self.inverters[unit_id]
-            self._turns += 1
-            self._last_turn[unit_id] = self._turns
-            try:
-                report = await self._async_read(inverter, self._blocks_for(unit_id))
-            except ModbusConnectionError as err:
-                # What was read so far counts; the next cycle opens a new link.
-                data.ended_in_timeout = data.link_lost = True
-                _LOGGER.debug(
-                    "Unit %s: connection lost (%s); units %s wait",
-                    unit_id,
-                    err,
-                    waiting,
-                )
+            if await self._async_read_unit(data, unit_id, waiting):
                 break
-            except ModbusTimeoutError:
-                data.ended_in_timeout = True
-                _LOGGER.debug("Unit %s did not answer; units %s wait", unit_id, waiting)
-            except ModbusError as err:
-                _LOGGER.debug("Unit %s: poll failed: %s", unit_id, err)
-                self._stuck.discard(unit_id)
-                continue
-            else:
-                self._take(data, unit_id, inverter, report)
-                # A late status block holds the ECU up just as much.
-                data.ended_in_timeout = any(
-                    isinstance(err, ModbusTimeoutError)
-                    for err in report.failed.values()
-                )
-                if data.ended_in_timeout:
-                    _LOGGER.debug(
-                        "Unit %s: measurements read, status did not answer; "
-                        "units %s wait",
-                        unit_id,
-                        waiting,
-                    )
-            if data.ended_in_timeout:
-                self._stuck.add(unit_id)
-                break
-            self._stuck.discard(unit_id)
 
         # Inverters that went unanswered before do not make a cycle short.
         data.cut_short = any(unit not in self._stuck for unit in waiting)
-        return await self._async_finish_cycle(data, limit_done=limit_done)
+        if not data.available:
+            # Only a poll in which the ECU answered can mark one inverter silent.
+            self._stuck = stuck_before
+        if not writes_done:
+            await self._async_after_reads(data, started, waiting)
+        return await self._async_finish_cycle(data)
+
+    async def _async_after_reads(
+        self, data: EcuData, started: float, waiting: list[int]
+    ) -> None:
+        """Judge the poll, then make the writes that can wait.
+
+        An unanswered write makes the poll unhealthy after all.
+        """
+        elapsed = monotonic() - started
+        self.seconds_per_inverter = (
+            round(elapsed / len(data.available), 1) if data.available else None
+        )
+        self.poll_healthy = self._judge(data, elapsed, waiting)
+        await self.power_limit.async_after_poll(data)
+        await self.inverter_output.async_after_poll(data)
+        if self.link_busy:
+            self.poll_healthy = False
+
+    async def _async_read_unit(
+        self, data: EcuData, unit_id: int, waiting: list[int]
+    ) -> bool:
+        """Read one inverter; return whether the cycle has to stop."""
+        inverter = self.inverters[unit_id]
+        self._turns += 1
+        self._last_turn[unit_id] = self._turns
+        try:
+            report = await self._async_read(inverter, self._blocks_for(unit_id))
+        except ModbusConnectionError as err:
+            # What was read so far counts; the next cycle opens a new link.
+            data.ended_in_timeout = data.link_lost = True
+            _LOGGER.debug(
+                "Unit %s: connection lost (%s); units %s wait",
+                unit_id,
+                type(err).__name__,
+                waiting,
+            )
+            return True
+        except ModbusTimeoutError:
+            data.ended_in_timeout = True
+            _LOGGER.debug("Unit %s did not answer; units %s wait", unit_id, waiting)
+        except ModbusError as err:
+            _LOGGER.debug("Unit %s: poll failed: %s", unit_id, type(err).__name__)
+            self._stuck.discard(unit_id)
+            return False
+        else:
+            self._take(data, unit_id, inverter, report)
+            # A late status block holds the ECU up just as much.
+            data.ended_in_timeout = any(
+                isinstance(err, ModbusTimeoutError) for err in report.failed.values()
+            )
+            if data.ended_in_timeout:
+                _LOGGER.debug(
+                    "Unit %s: measurements read, status did not answer; units %s wait",
+                    unit_id,
+                    waiting,
+                )
+        if data.ended_in_timeout:
+            self._stuck.add(unit_id)
+            return True
+        self._stuck.discard(unit_id)
+        return False
+
+    def _judge(self, data: EcuData, elapsed: float, waiting: list[int]) -> bool:
+        """Whether the poll so far was healthy; units silent last time do not count.
+
+        Every write goes through the lead, so it must have been read.
+        """
+        return (
+            self.lead.unit_id in data.available
+            and not data.ended_in_timeout
+            and not any(unit not in self._stuck for unit in waiting)
+            and elapsed <= SLOW_POLL_PER_UNIT * len(data.available)
+        )
 
     @asynccontextmanager
     async def ready_link(self) -> AsyncIterator[None]:
@@ -316,9 +362,15 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
                     if self._reconnected:
                         raise
                     self._reconnected = True
-                    _LOGGER.debug("Connection lost (%s); reconnecting", err)
+                    _LOGGER.debug(
+                        "Connection lost (%s); reconnecting", type(err).__name__
+                    )
                     await self._async_drop_link()
-                    await inverter.async_poll((name,), report)
+                    try:
+                        await inverter.async_poll((name,), report)
+                    except ModbusTimeoutError:
+                        self.link_busy = True
+                        raise
                 if isinstance(report.failed.get(name), ModbusTimeoutError):
                     self.link_busy = True
                 # The limit is in the measurements block. Still under
@@ -351,7 +403,7 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
             data.available.add(unit_id)
             self._read_at[unit_id] = now
 
-    async def _async_finish_cycle(self, data: EcuData, *, limit_done: bool) -> EcuData:
+    async def _async_finish_cycle(self, data: EcuData) -> EcuData:
         """Settle the outcome of a cycle and compute what the entities show."""
         oldest = dt_util.utcnow() - timedelta(seconds=VALUE_MAX_AGE)
         data.recent = {unit for unit, at in self._read_at.items() if at >= oldest}
@@ -361,15 +413,16 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
             return self._fail_or_keep(data)
         if self._silent:
             self._silent = False
+            self._silent_since = None
+            ir.async_delete_issue(
+                self.hass, DOMAIN, silent_issue_id(self.config_entry.entry_id)
+            )
             _LOGGER.info("The ECU is answering again")
         if data.cut_short:
             self._degraded = True
         else:
             self._recover()
         self._aggregate(data)
-        if not limit_done:
-            # Runs after the reads, so write_lock is free; see power_limit.py.
-            await self.power_limit.async_after_poll(data)
         if data.ended_in_timeout:
             # The ECU stays busy with an unanswered request and its next
             # cycle tends to get nothing on the same link; a fresh one works.
@@ -457,6 +510,19 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
     async def _async_note_silence(self) -> None:
         """Try again after the next round until the ECU answers again."""
         self._degraded = True
+        now = dt_util.utcnow()
+        if self._silent_since is None:
+            self._silent_since = now
+        elif now - self._silent_since >= SILENT_NOTICE:
+            # A short silence of the ECU is normal; hours point to a setting.
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                silent_issue_id(self.config_entry.entry_id),
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="ecu_not_answering",
+            )
         if not self._silent:
             self._silent = True
             _LOGGER.warning(
@@ -509,7 +575,7 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         try:
             await self.lead.modbus_unit.disconnect()
         except ModbusError as err:
-            _LOGGER.debug("Closing the link failed: %s", err)
+            _LOGGER.debug("Closing the link failed: %s", type(err).__name__)
 
     def _aggregate(self, data: EcuData) -> None:
         """Compute the ECU totals from the recent values of every inverter.

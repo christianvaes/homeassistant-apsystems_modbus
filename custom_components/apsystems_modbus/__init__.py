@@ -15,7 +15,12 @@ from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.helpers.translation import async_get_translations
 
 from .const import CONF_INVERTERS, CONF_SERIAL_NUMBER, CONF_UNIT_ID, DOMAIN
-from .coordinator import ApsystemsConfigEntry, EcuCoordinator, new_address_issue_id
+from .coordinator import (
+    ApsystemsConfigEntry,
+    EcuCoordinator,
+    new_address_issue_id,
+    silent_issue_id,
+)
 from .ecu import Inverter
 from .entity import ecu_device_info, ecu_identifier
 from .inverter_output import output_store_for, stored_off
@@ -70,6 +75,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ApsystemsConfigEntry) ->
     # Notices are checked afresh after a change or a reconfigure.
     ir.async_delete_issue(hass, DOMAIN, issue_id_for(entry.entry_id))
     ir.async_delete_issue(hass, DOMAIN, new_address_issue_id(entry.entry_id))
+    ir.async_delete_issue(hass, DOMAIN, silent_issue_id(entry.entry_id))
     # The inverter devices hang below the ECU device, so register that first.
     registry = dr.async_get(hass)
     ecu_device = registry.async_get_or_create(
@@ -130,6 +136,7 @@ async def _async_remove_limit(hass: HomeAssistant, entry: ApsystemsConfigEntry) 
     await store.async_remove()
     ir.async_delete_issue(hass, DOMAIN, issue_id_for(entry.entry_id))
     ir.async_delete_issue(hass, DOMAIN, new_address_issue_id(entry.entry_id))
+    ir.async_delete_issue(hass, DOMAIN, silent_issue_id(entry.entry_id))
     if desired is None:
         return
     try:
@@ -138,26 +145,16 @@ async def _async_remove_limit(hass: HomeAssistant, entry: ApsystemsConfigEntry) 
         _LOGGER.warning(
             "Could not release the power limit on removal (%s)", type(err).__name__
         )
-        _LOGGER.debug("Releasing the power limit failed: %s", err)
         released = False
     if released or desired >= NO_LIMIT:
         return
-    # Notifications have no translation keys of their own, so the text comes
-    # from this integration's translations in the user's language.
-    texts = await async_get_translations(
-        hass, hass.config.language, "exceptions", [DOMAIN]
-    )
-    message = texts.get(
-        f"component.{DOMAIN}.exceptions.limit_maybe_active.message",
+    await _async_notify(
+        hass,
+        "limit_maybe_active",
         "The APsystems ECU could not be checked while the integration was "
         "removed. If a power limit was set, the inverters may still be "
         "limited. Add the integration again and set the power limit to 100 %.",
-    )
-    persistent_notification.async_create(
-        hass,
-        message,
-        title="APsystems Modbus",
-        notification_id=f"{DOMAIN}_power_limit_{entry.entry_id}",
+        f"{DOMAIN}_power_limit_{entry.entry_id}",
     )
 
 
@@ -192,20 +189,32 @@ async def _async_restore_output(
         else:
             _LOGGER.info("Turned the inverter output on before removing the ECU")
             return
-    texts = await async_get_translations(
-        hass, hass.config.language, "exceptions", [DOMAIN]
-    )
-    message = texts.get(
-        f"component.{DOMAIN}.exceptions.output_maybe_off.message",
+    await _async_notify(
+        hass,
+        "output_maybe_off",
         "The APsystems ECU could not be reached while the integration was "
         "removed. Inverter output was off. An ECU-R turns the inverters on by "
         "itself within ten minutes. If they stay off, turn the ECU off and on.",
+        f"{DOMAIN}_inverter_output_{entry.entry_id}",
+    )
+
+
+async def _async_notify(
+    hass: HomeAssistant, key: str, fallback: str, notification_id: str
+) -> None:
+    """Leave a notification in the user's language.
+
+    Notifications have no translation keys of their own, so the text comes
+    from this integration's translations.
+    """
+    texts = await async_get_translations(
+        hass, hass.config.language, "exceptions", [DOMAIN]
     )
     persistent_notification.async_create(
         hass,
-        message,
+        texts.get(f"component.{DOMAIN}.exceptions.{key}.message", fallback),
         title="APsystems Modbus",
-        notification_id=f"{DOMAIN}_inverter_output_{entry.entry_id}",
+        notification_id=notification_id,
     )
 
 

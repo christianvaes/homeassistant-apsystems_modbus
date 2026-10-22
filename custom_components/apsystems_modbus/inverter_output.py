@@ -16,6 +16,10 @@ Measured on an ECU-R (firmware 1.3.23) with DS3 inverters:
   that round shows it delivering, so 0 is written again at once instead of
   waiting for the next fifth minute.
 
+Writes that can wait go in ``async_after_poll`` after a healthy poll, like
+those of the power limit. Turning off writes at once, because off only works
+when it reaches the ECU before its round.
+
 A write is skipped rather than queued while the ECU struggles: a late write
 lands after the round, where it does nothing but keep a busy ECU busy. After
 such a gap, and after a restart or the night, the output is turned off again
@@ -37,7 +41,6 @@ from modbus_connection import ModbusError
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import sun
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.storage import Store
@@ -93,8 +96,6 @@ class InverterOutput:
         """An off write is due right after the next healthy poll."""
         self._lock = asyncio.Lock()
         self._unsub_clock: CALLBACK_TYPE | None = None
-        self._handled: EcuData | None = None
-        """The poll result already looked at; listeners also run without a poll."""
 
     async def async_load(self) -> None:
         """Take over the choice stored before Home Assistant (re)started."""
@@ -104,8 +105,7 @@ class InverterOutput:
 
     @callback
     def async_start(self, entry: ConfigEntry) -> None:
-        """Follow the polls and, while off, the clock; stop with the entry."""
-        entry.async_on_unload(self._coordinator.async_add_listener(self._after_poll))
+        """Follow the clock while off; stop with the entry."""
         entry.async_on_unload(self._stop_clock)
         if not self.enabled:
             self._start_clock()
@@ -117,8 +117,9 @@ class InverterOutput:
     async def async_set(self, enabled: bool) -> None:
         """Apply the user's choice.
 
-        Off writes 0 at once, unless it is night. If the ECU struggles, the
-        user is told and the next healthy poll sends it. On writes 1 once.
+        Off writes 0 at once, unless it is night or the ECU struggles; then
+        the next healthy poll sends it, without an error that would stop an
+        automation. On writes 1 once.
         """
         if enabled == self.enabled:
             return
@@ -138,19 +139,19 @@ class InverterOutput:
             if self.enabled:
                 return  # Turned on again in the meantime.
             if not self._coordinator.poll_healthy:
-                _LOGGER.debug("Inverter output: off waits for a healthy poll")
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="inverter_output_pending",
+                _LOGGER.warning(
+                    "Inverter output off is sent once the ECU answers normally"
                 )
+                return
             try:
                 await self._async_write(connected=False)
             except ModbusError as err:
-                _LOGGER.debug("Inverter output: writing off failed: %s", err)
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="inverter_output_pending",
-                ) from err
+                _LOGGER.warning(
+                    "Inverter output off did not reach the ECU (%s); it is sent "
+                    "again once the ECU answers normally",
+                    type(err).__name__,
+                )
+                return
             self.catch_up = False
 
     async def _async_send_on(self) -> None:
@@ -167,22 +168,13 @@ class InverterOutput:
                     type(err).__name__,
                 )
 
-    @callback
-    def _after_poll(self) -> None:
-        """Send off right after a healthy poll if it is due or an inverter delivers.
-
-        Setting the power limit or the options also calls the listeners. Only
-        a new poll result counts, so the same readings never write twice.
-        """
-        if self._coordinator.data is self._handled:
-            return
-        self._handled = self._coordinator.data
-        if self.enabled or not self._coordinator.poll_healthy:
-            return
-        if not sun.is_up(self._coordinator.hass):
+    async def async_after_poll(self, data: EcuData) -> None:
+        """Send off after a healthy poll if it is due or an inverter delivers."""
+        healthy = self._coordinator.poll_healthy
+        if self.enabled or not healthy or not sun.is_up(self._coordinator.hass):
             return
         if not self.catch_up:
-            if not (delivering := self._delivering()):
+            if not (delivering := self._delivering(data)):
                 return
             _LOGGER.debug(
                 "Inverter output: units %s deliver while off, writing off again",
@@ -191,21 +183,14 @@ class InverterOutput:
                 ),
             )
             self.catch_up = True
-        self._coordinator.config_entry.async_create_background_task(
-            self._coordinator.hass,
-            self._async_send_off(due=None),
-            f"{DOMAIN} inverter output off",
-        )
+        await self._async_send_off(due=None)
 
-    def _delivering(self) -> list[tuple[int, float]]:
-        """Return the inverters read in the last poll that deliver power.
-
-        Only called after a healthy poll, so there is data.
-        """
+    def _delivering(self, data: EcuData) -> list[tuple[int, float]]:
+        """Return the inverters read in this poll that deliver power."""
         inverters = self._coordinator.inverters
         return [
             (unit_id, power)
-            for unit_id in sorted(self._coordinator.data.available)
+            for unit_id in sorted(data.available)
             if LEAK_POWER
             < (power := inverters[unit_id].measurements.ac_power or 0.0)
             <= MAX_INVERTER_POWER
@@ -250,7 +235,9 @@ class InverterOutput:
             try:
                 written = await self._async_write(connected=False, due=due)
             except ModbusError as err:
-                _LOGGER.debug("Inverter output: writing off failed: %s", err)
+                _LOGGER.debug(
+                    "Inverter output: writing off failed: %s", type(err).__name__
+                )
                 self.catch_up = True
                 return
             self.catch_up = not written

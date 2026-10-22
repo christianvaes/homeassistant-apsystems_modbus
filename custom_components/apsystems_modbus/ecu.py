@@ -70,7 +70,8 @@ EXPORT_LIMIT_ENABLED_ADDRESS = 40193
 GRID_CONNECTION_ADDRESS = 40188
 """Conn: 0 disconnects every inverter from the grid, 1 connects them again.
 
-Only ``InverterOutput`` writes it. An ECU-R reads back 1 whatever was written.
+Written by ``InverterOutput``, and on removal to turn the output on again. An
+ECU-R reads back 1 whatever was written.
 The time window and revert time before it (40186, 40187) are never written.
 """
 
@@ -210,6 +211,8 @@ class Measurements(Component):
     energy_today = float32(40154, unit="Wh")
     temperature = float32(40162, unit="°C")
 
+    # The ECU ignores "write single register" (function code 6) and only
+    # accepts "write multiple registers" (16), even for one register.
     grid_connection = integer(
         GRID_CONNECTION_ADDRESS,
         signed=False,
@@ -217,8 +220,6 @@ class Measurements(Component):
         writable=_validate_grid_connection,
         force_fc16=True,
     )
-    # The ECU ignores "write single register" (function code 6) and only
-    # accepts "write multiple registers" (16), even for one register.
     export_limit = gauge(
         EXPORT_LIMIT_ADDRESS,
         0.1,

@@ -101,17 +101,11 @@
     "no_inverter_answered": {
       "message": "Geen enkele omvormer antwoordde. De ECU is mogelijk druk, dus de volgende uitlezing probeert het opnieuw."
     },
-    "power_limit_pending": {
-      "message": "De ECU heeft de vermogenslimiet van {percent} % nog niet aangenomen. De integratie schrijft hem bij de volgende uitlezing opnieuw. Tot die tijd toont de slider wat de ECU meldt."
-    },
     "power_limit_invalid": {
       "message": "{value} is geen geldige vermogenslimiet. Vul een heel getal van 0 tot 100 in."
     },
     "limit_maybe_active": {
       "message": "De APsystems ECU kon niet worden gecontroleerd tijdens het verwijderen van de integratie. Als er een limiet stond, kunnen de omvormers nog begrensd zijn. Voeg de integratie opnieuw toe en zet de limiet op 100 %."
-    },
-    "inverter_output_pending": {
-      "message": "De omvormers konden nog niet worden uitgezet, omdat de ECU bezig is. De integratie stuurt de opdracht binnen vijf minuten opnieuw."
     },
     "output_maybe_off": {
       "message": "De APsystems ECU was niet bereikbaar tijdens het verwijderen van de integratie. Inverter output stond uit. Een ECU-R zet de omvormers binnen tien minuten vanzelf weer aan. Blijven ze uit, zet de ECU dan even uit en weer aan."
@@ -141,6 +135,10 @@
     "addresses_changed": {
       "title": "Omvormer heeft een nieuw adres",
       "description": "Omvormer {id} heeft in de Modbus-instellingen van EMA Manager een nieuw adres gekregen ({old} → {new}). Tot je dit overneemt, zijn de waarden niet beschikbaar. Kies Herconfigureer in het menu van deze integratie. Apparaten en historie blijven behouden."
+    },
+    "ecu_not_answering": {
+      "title": "De APsystems ECU antwoordt niet",
+      "description": "De ECU antwoordt al twee uur niet. Controleer of hij stroom heeft en met een netwerkkabel is aangesloten, of het IP-adres nog klopt (Herconfigureer in het menu van deze integratie) en of Modbus nog aan staat in EMA Manager. Deze melding verdwijnt zodra de ECU weer antwoordt."
     }
   }
 }

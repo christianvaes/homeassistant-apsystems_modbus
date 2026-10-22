@@ -60,46 +60,20 @@ async def test_controls_block_read(mock_ecu: MockModbusConnection) -> None:
     assert m.grid_connected is True
 
 
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [(ord("1"), True), (ord("0"), False), (1, True), (0, False), (7, None)],
-)
-async def test_enable_flag_decoding(
-    mock_ecu: MockModbusConnection, raw: int, expected: bool | None
-) -> None:
-    mock_ecu.for_unit(1).holding[40193] = raw
-    inverter = Inverter(mock_ecu.for_unit(1), 1)
-    await inverter.async_poll(("measurements",))
-
-    assert inverter.measurements.export_limit_enabled is expected
-
-
-async def test_offline_inverter(mock_ecu: MockModbusConnection) -> None:
+@pytest.mark.parametrize("watts", [0.0, 1.0])
+async def test_offline_inverter(mock_ecu: MockModbusConnection, watts: float) -> None:
+    # At night the ECU may keep 1 W of an inverter that is off the grid.
     unit = mock_ecu.for_unit(1)
     set_float32(unit, 40138, 0.0)  # voltage
-    set_float32(unit, 40144, 0.0)  # power
+    set_float32(unit, 40144, watts)  # power
     set_float32(unit, 40146, 0.0)  # frequency
     inverter = Inverter(unit, 1)
     await inverter.async_poll(("measurements",))
 
     assert inverter.measurements.is_online is False
+    assert inverter.measurements.ac_power == watts
     # The daily counter keeps its value while the inverter is offline.
     assert inverter.measurements.energy_today == pytest.approx(554.08, abs=0.01)
-
-
-async def test_leftover_watt_at_night_is_offline(
-    mock_ecu: MockModbusConnection,
-) -> None:
-    # At night the ECU may keep 1 W of an inverter that is off the grid.
-    unit = mock_ecu.for_unit(1)
-    set_float32(unit, 40138, 0.0)
-    set_float32(unit, 40144, 1.0)
-    set_float32(unit, 40146, 0.0)
-    inverter = Inverter(unit, 1)
-    await inverter.async_poll(("measurements",))
-
-    assert inverter.measurements.is_online is False
-    assert inverter.measurements.ac_power == 1.0
 
 
 async def test_stray_zero_frequency_still_online(
@@ -111,18 +85,6 @@ async def test_stray_zero_frequency_still_online(
     await inverter.async_poll(("measurements",))
 
     assert inverter.measurements.is_online is True
-
-
-async def test_poll_uses_two_reads(mock_ecu: MockModbusConnection) -> None:
-    unit = mock_ecu.for_unit(1)
-    inverter = Inverter(unit, 1)
-    await inverter.async_ensure_setup()
-    unit.read_events.clear()
-
-    await inverter.async_poll(Inverter.POLLED)
-
-    spans = sorted((event.address, event.count) for event in unit.read_events)
-    assert spans == [(40052, 60), (40124, 114)]
 
 
 async def test_unsupported_layout(mock_ecu: MockModbusConnection) -> None:

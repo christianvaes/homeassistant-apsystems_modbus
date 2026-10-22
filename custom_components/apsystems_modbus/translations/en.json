@@ -101,17 +101,11 @@
     "no_inverter_answered": {
       "message": "No inverter answered. The ECU may be busy, so the next poll tries again."
     },
-    "power_limit_pending": {
-      "message": "The ECU did not accept the power limit of {percent} % yet. The integration writes it again at the next poll. Until then the slider shows what the ECU reports."
-    },
     "power_limit_invalid": {
       "message": "{value} is not a valid power limit. Enter a whole number from 0 to 100."
     },
     "limit_maybe_active": {
       "message": "The APsystems ECU could not be checked while the integration was removed. If a power limit was set, the inverters may still be limited. Add the integration again and set the power limit to 100 %."
-    },
-    "inverter_output_pending": {
-      "message": "The inverter output could not be switched off yet, because the ECU is busy. The integration sends the command again within five minutes."
     },
     "output_maybe_off": {
       "message": "The APsystems ECU could not be reached while the integration was removed. Inverter output was off. An ECU-R turns the inverters on by itself within ten minutes. If they stay off, turn the ECU off and on."
@@ -205,6 +199,10 @@
     "addresses_changed": {
       "title": "Inverter has a new address",
       "description": "Inverter {id} got a new address in the Modbus settings of EMA Manager ({old} → {new}). Its values are unavailable until you take this over. Choose Reconfigure in the menu of this integration. Devices and history are kept."
+    },
+    "ecu_not_answering": {
+      "title": "The APsystems ECU does not answer",
+      "description": "The ECU has not answered for two hours. Check that it has power and is connected with an Ethernet cable, that its IP address is still right (Reconfigure in the menu of this integration) and that Modbus is still on in EMA Manager. This notice disappears when the ECU answers again."
     }
   }
 }

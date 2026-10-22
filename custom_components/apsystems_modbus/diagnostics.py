@@ -32,6 +32,8 @@ async def async_get_config_entry_diagnostics(
     """Return what the integration knows, redacted."""
     coordinator = entry.runtime_data
     data = coordinator.data
+    output = coordinator.inverter_output
+    limit = coordinator.power_limit
     return {
         "entry": {
             # The title can hold the ECU id, so it is left out.
@@ -54,31 +56,30 @@ async def async_get_config_entry_diagnostics(
         "polling": {
             "settle_s": coordinator.settle,
             "poll_healthy": coordinator.poll_healthy,
+            "seconds_per_inverter": coordinator.seconds_per_inverter,
         },
         "inverter_output": {
-            "enabled": coordinator.inverter_output.enabled,
-            "catch_up": coordinator.inverter_output.catch_up,
-            "last_write": coordinator.inverter_output.last_write.isoformat()
-            if coordinator.inverter_output.last_write
-            else None,
-            "last_result": coordinator.inverter_output.last_result,
+            "enabled": output.enabled,
+            "catch_up": output.catch_up,
+            "last_write": output.last_write.isoformat() if output.last_write else None,
+            "last_result": output.last_result,
         },
         "power_limit": {
-            "control_unit": coordinator.power_limit.control.unit_id,
-            "desired": coordinator.power_limit.desired,
-            "pending": coordinator.power_limit.pending,
-            "shown": coordinator.power_limit.shown,
-            "deviations": coordinator.power_limit.deviations,
-            "last_rewrite": coordinator.power_limit.last_rewrite.isoformat()
-            if coordinator.power_limit.last_rewrite
+            "control_unit": limit.control.unit_id,
+            "desired": limit.desired,
+            "pending": limit.pending,
+            "shown": limit.shown,
+            "deviations": limit.deviations,
+            "last_rewrite": limit.last_rewrite.isoformat()
+            if limit.last_rewrite
             else None,
-            "refreshing": coordinator.power_limit.refreshing,
-            "next_refresh": coordinator.power_limit.next_refresh.isoformat()
-            if coordinator.power_limit.next_refresh
+            "refreshing": limit.refreshing,
+            "next_refresh": limit.next_refresh.isoformat()
+            if limit.next_refresh
             else None,
-            "rewrites": coordinator.power_limit.rewrites,
-            "installation_power_kw": coordinator.power_limit.installation_power,
-            "overshoot_refreshes": coordinator.power_limit.overshoot_refreshes,
+            "rewrites": limit.rewrites,
+            "installation_power_kw": limit.installation_power,
+            "overshoot_refreshes": limit.overshoot_refreshes,
         },
         "lifetime": {
             "lifetime_energy_wh": coordinator.ledger.lifetime,

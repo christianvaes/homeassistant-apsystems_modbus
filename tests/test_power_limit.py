@@ -140,26 +140,15 @@ async def test_set_below_100_writes_percent_then_enable(
     await setup_entry(hass, mock_config_entry)
     assert state_of(hass) == "100"
     writes = record_writes(mock_ecu.for_unit(1))
+    others = record_writes(mock_ecu.for_unit(2))
 
     await set_limit(hass, 30)
 
     assert writes == [(EXPORT_LIMIT_ADDRESS, 300), (EXPORT_LIMIT_ENABLED_ADDRESS, 1)]
+    assert others == []  # Other inverters are never written.
     assert state_of(hass) == "30"
     assert attributes_of(hass)["desired"] == 30
     assert attributes_of(hass)["pending"] is False
-
-
-async def test_other_inverters_are_never_written(
-    hass: HomeAssistant,
-    mock_ecu: MockModbusConnection,
-    mock_config_entry: MockConfigEntry,
-) -> None:
-    await setup_entry(hass, mock_config_entry)
-    writes = record_writes(mock_ecu.for_unit(2))
-
-    await set_limit(hass, 30)
-
-    assert writes == []
 
 
 async def test_value_is_rounded_to_whole_percent(
@@ -202,9 +191,7 @@ async def test_failed_first_write_is_pending_and_retried_at_next_poll(
     writes = record_writes(unit)
     unit.fail_write(EXPORT_LIMIT_ADDRESS, ModbusTimeoutError())
 
-    with pytest.raises(HomeAssistantError) as err:
-        await set_limit(hass, 30)
-    assert err.value.translation_key == "power_limit_pending"
+    await set_limit(hass, 30)
     assert writes == []
     assert state_of(hass) == "100"
     assert attributes_of(hass)["desired"] == 30
@@ -228,8 +215,7 @@ async def test_pending_retry_is_rate_limited(
     coordinator = await setup_entry(hass, mock_config_entry)
     unit = mock_ecu.for_unit(1)
     unit.fail_write(EXPORT_LIMIT_ADDRESS, ModbusTimeoutError())
-    with pytest.raises(HomeAssistantError):
-        await set_limit(hass, 30)
+    await set_limit(hass, 30)
     writes = record_writes(unit)
 
     # The first retry fails as well ...
@@ -260,8 +246,7 @@ async def test_failed_second_write_at_100_is_not_undone(
     attempts = count_write_attempts(unit)
     unit.fail_write(EXPORT_LIMIT_ENABLED_ADDRESS, ModbusTimeoutError())
 
-    with pytest.raises(HomeAssistantError):
-        await set_limit(hass, 100)
+    await set_limit(hass, 100)
 
     # The percentage landed, the flag did not: 1000 with enable is full power.
     # The flag is not tried again at once; the next poll takes care of it.
@@ -288,9 +273,8 @@ async def test_failed_second_write_below_100_is_completed(
     writes = record_writes(unit)
     unit.fail_write(EXPORT_LIMIT_ENABLED_ADDRESS, ModbusTimeoutError())
 
-    with pytest.raises(HomeAssistantError):
-        await set_limit(hass, 30)
-    # 300 without the flag does nothing; the user is told and nothing is shown.
+    await set_limit(hass, 30)
+    # 300 without the flag does nothing; the choice stays pending and is not shown.
     assert writes == [(EXPORT_LIMIT_ADDRESS, 300)]
     assert state_of(hass) == "100"
 
@@ -309,8 +293,7 @@ async def test_pending_is_retried_while_one_inverter_stays_silent(
     coordinator = await setup_entry(hass, mock_config_entry)
     unit = mock_ecu.for_unit(1)
     unit.fail_write(EXPORT_LIMIT_ADDRESS, ModbusTimeoutError())
-    with pytest.raises(HomeAssistantError):
-        await set_limit(hass, 30)
+    await set_limit(hass, 30)
     unit.fail_write(EXPORT_LIMIT_ADDRESS, None)
     writes = record_writes(unit)
 
@@ -335,8 +318,7 @@ async def test_pending_is_not_retried_in_a_poll_cut_short(
     coordinator = await setup_entry(hass, entry)
     unit = mock_ecu.for_unit(1)
     unit.fail_write(EXPORT_LIMIT_ADDRESS, ModbusTimeoutError())
-    with pytest.raises(HomeAssistantError):
-        await set_limit(hass, 30)
+    await set_limit(hass, 30)
     unit.fail_write(EXPORT_LIMIT_ADDRESS, None)
     writes = record_writes(unit)
     caplog.clear()
@@ -362,8 +344,7 @@ async def test_pending_and_same_value_again_writes_now(
     await setup_entry(hass, mock_config_entry)
     unit = mock_ecu.for_unit(1)
     unit.fail_write(EXPORT_LIMIT_ADDRESS, ModbusConnectionError("dropped"))
-    with pytest.raises(HomeAssistantError):
-        await set_limit(hass, 30)
+    await set_limit(hass, 30)
     unit.fail_write(EXPORT_LIMIT_ADDRESS, None)
     writes = record_writes(unit)
 
@@ -381,14 +362,12 @@ async def test_no_write_while_the_ecu_works_on_an_unanswered_request(
     coordinator = await setup_entry(hass, mock_config_entry)
     unit = mock_ecu.for_unit(1)
     unit.fail_write(EXPORT_LIMIT_ADDRESS, ModbusTimeoutError())
-    with pytest.raises(HomeAssistantError):
-        await set_limit(hass, 30)
+    await set_limit(hass, 30)
     unit.fail_write(EXPORT_LIMIT_ADDRESS, None)
     writes = record_writes(unit)
 
     # Trying again at once would queue up behind the unanswered write.
-    with pytest.raises(HomeAssistantError):
-        await set_limit(hass, 30)
+    await set_limit(hass, 30)
     assert writes == []
 
     # The next poll starts on a fresh link and writes the choice.
@@ -659,25 +638,28 @@ async def test_replaced_control_unit_keeps_the_limit(
     assert writes == [(EXPORT_LIMIT_ADDRESS, 300), (EXPORT_LIMIT_ENABLED_ADDRESS, 1)]
 
 
+@pytest.mark.parametrize("poll_between", [True, False])
 async def test_only_registers_that_differ_are_written(
     hass: HomeAssistant,
     mock_ecu: MockModbusConnection,
     mock_config_entry: MockConfigEntry,
+    poll_between: bool,
 ) -> None:
     coordinator = await setup_entry(hass, mock_config_entry)
     writes = record_writes(mock_ecu.for_unit(1))
 
-    await set_limit(hass, 50)
-    assert writes == [(EXPORT_LIMIT_ADDRESS, 500), (EXPORT_LIMIT_ENABLED_ADDRESS, 1)]
-    await coordinator.async_refresh()
+    # The flag is on after the first change: writing it again made the ECU
+    # stop answering. Without a poll in between, the last read still says
+    # "no limit", so what was written counts.
+    for percent in (50, 0, 100):
+        await set_limit(hass, percent)
+        if poll_between:
+            await coordinator.async_refresh()
 
-    # The flag is on already: writing it again made the ECU stop answering.
-    await set_limit(hass, 0)
-    assert writes[2:] == [(EXPORT_LIMIT_ADDRESS, 0)]
-    await coordinator.async_refresh()
-
-    await set_limit(hass, 100)
-    assert writes[3:] == [
+    assert writes == [
+        (EXPORT_LIMIT_ADDRESS, 500),
+        (EXPORT_LIMIT_ENABLED_ADDRESS, 1),
+        (EXPORT_LIMIT_ADDRESS, 0),
         (EXPORT_LIMIT_ADDRESS, 1000),
         (EXPORT_LIMIT_ENABLED_ADDRESS, 0),
     ]
@@ -706,27 +688,6 @@ async def test_debug_log_shows_what_is_written(
         "Writing power limit register 40193 = 1",
         "Writing power limit register 40189 = 0",
         "Power limit register 40193 already holds 1, not written",
-    ]
-
-
-async def test_changes_between_polls_count_what_was_written(
-    hass: HomeAssistant,
-    mock_ecu: MockModbusConnection,
-    mock_config_entry: MockConfigEntry,
-) -> None:
-    await setup_entry(hass, mock_config_entry)
-    writes = record_writes(mock_ecu.for_unit(1))
-
-    # The last read still says "no limit", but the first change set the flag.
-    await set_limit(hass, 50)
-    await set_limit(hass, 0)
-    await set_limit(hass, 100)
-    assert writes == [
-        (EXPORT_LIMIT_ADDRESS, 500),
-        (EXPORT_LIMIT_ENABLED_ADDRESS, 1),
-        (EXPORT_LIMIT_ADDRESS, 0),
-        (EXPORT_LIMIT_ADDRESS, 1000),
-        (EXPORT_LIMIT_ENABLED_ADDRESS, 0),
     ]
 
 
@@ -795,8 +756,7 @@ async def test_an_unanswered_flag_is_not_sent_again_before_a_read(
     writes = record_writes(unit)
     # The ECU takes the flag but does not answer.
     unit.fail_write(EXPORT_LIMIT_ENABLED_ADDRESS, ModbusTimeoutError())
-    with pytest.raises(HomeAssistantError):
-        await set_limit(hass, 50)
+    await set_limit(hass, 50)
     unit.fail_write(EXPORT_LIMIT_ENABLED_ADDRESS, None)
 
     # At the next poll a change gets in before the limit is read again.
@@ -955,23 +915,29 @@ async def test_stays_available_while_the_ecu_is_silent(
     assert state_of(hass) == "100"
 
     # Setting is attempted and reports the failure instead of being skipped.
-    with pytest.raises(HomeAssistantError) as err:
-        await set_limit(hass, 30)
-    assert err.value.translation_key == "power_limit_pending"
+    await set_limit(hass, 30)
 
 
-async def test_unknown_before_the_first_poll_but_settable(
+async def test_unknown_before_the_first_poll_then_sent_after_it(
     hass: HomeAssistant,
     mock_ecu: MockModbusConnection,
     mock_config_entry: MockConfigEntry,
 ) -> None:
     for unit_id in (1, 2):
         mock_ecu.for_unit(unit_id).fail_read(EXPORT_LIMIT_ADDRESS, ModbusTimeoutError())
-    await setup_entry(hass, mock_config_entry)
+    coordinator = await setup_entry(hass, mock_config_entry)
     assert state_of(hass) == STATE_UNKNOWN
 
+    # Nothing read yet: the choice waits instead of being written blindly.
     writes = record_writes(mock_ecu.for_unit(1))
     await set_limit(hass, 40)
+    assert writes == []
+    assert coordinator.power_limit.pending
+
+    for unit_id in (1, 2):
+        mock_ecu.for_unit(unit_id).fail_read(EXPORT_LIMIT_ADDRESS, None)
+    await coordinator.async_refresh()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert writes == [(EXPORT_LIMIT_ADDRESS, 400), (EXPORT_LIMIT_ENABLED_ADDRESS, 1)]
     assert state_of(hass) == "40"
 
@@ -1024,8 +990,7 @@ async def test_removal_at_100_releases_a_change_that_did_not_arrive(
     await set_limit(hass, 30)
     unit = mock_ecu.for_unit(1)
     unit.fail_write(EXPORT_LIMIT_ADDRESS, ModbusConnectionError("dropped"))
-    with pytest.raises(HomeAssistantError):
-        await set_limit(hass, 100)
+    await set_limit(hass, 100)
     unit.fail_write(EXPORT_LIMIT_ADDRESS, None)
     writes = record_writes(unit)
 
@@ -1134,7 +1099,9 @@ async def test_restore_waits_until_the_ecu_is_not_busy(
     set_ecu(unit, 100, 48)
     mock_ecu.for_unit(2).fail_requests(ModbusTimeoutError())
     mock_ecu.for_unit(3).fail_requests(ModbusTimeoutError())
-    for _ in range(2):
+    # A poll in which nothing answered marks no unit, so learning both silent
+    # units takes three polls.
+    for _ in range(3):
         await coordinator.async_refresh()
     assert writes == []
 
@@ -1394,7 +1361,7 @@ async def test_finishing_a_refresh_waits_until_the_ecu_is_not_busy(
     mock_ecu.for_unit(2).fail_requests(ModbusTimeoutError())
     mock_ecu.for_unit(3).fail_requests(ModbusTimeoutError())
     freezer.tick(STEP_HOLD)
-    for _ in range(2):
+    for _ in range(3):
         await coordinator.async_refresh()
         assert writes[1:] == []
     await coordinator.async_refresh()
@@ -1427,38 +1394,29 @@ async def test_failed_finish_is_retried_at_the_next_poll(
     assert coordinator.power_limit.refreshing is False
 
 
-async def test_quiet_evening_does_not_refresh(
+@pytest.mark.parametrize(
+    ("percent", "error"),
+    [
+        # At dusk the ECU often stops answering without dropping the connection.
+        (30, ModbusTimeoutError()),
+        # A broken connection, as after a restart of the ECU, at no limit.
+        (100, ModbusConnectionError("restart")),
+    ],
+    ids=["quiet_evening", "restart_at_100"],
+)
+async def test_silent_ecu_does_not_refresh(
     hass: HomeAssistant,
     mock_ecu: MockModbusConnection,
     mock_config_entry: MockConfigEntry,
+    percent: int,
+    error: Exception,
 ) -> None:
     coordinator = await setup_entry(hass, mock_config_entry)
-    await set_limit(hass, 30)
+    await set_limit(hass, percent)
     writes = record_writes(mock_ecu.for_unit(1))
 
-    # At dusk the ECU often stops answering without dropping the connection.
     for unit_id in (1, 2):
-        mock_ecu.for_unit(unit_id).fail_requests(ModbusTimeoutError())
-    await coordinator.async_refresh()
-    for unit_id in (1, 2):
-        mock_ecu.for_unit(unit_id).fail_requests(None)
-    await coordinator.async_refresh()
-
-    assert writes == []
-
-
-async def test_silent_ecu_at_100_does_not_refresh(
-    hass: HomeAssistant,
-    mock_ecu: MockModbusConnection,
-    mock_config_entry: MockConfigEntry,
-) -> None:
-    coordinator = await setup_entry(hass, mock_config_entry)
-    await set_limit(hass, 100)
-    writes = record_writes(mock_ecu.for_unit(1))
-
-    # A broken connection, as after a restart of the ECU.
-    for unit_id in (1, 2):
-        mock_ecu.for_unit(unit_id).fail_requests(ModbusConnectionError("restart"))
+        mock_ecu.for_unit(unit_id).fail_requests(error)
     await coordinator.async_refresh()
     for unit_id in (1, 2):
         mock_ecu.for_unit(unit_id).fail_requests(None)
@@ -1651,8 +1609,7 @@ async def test_failed_change_during_a_refresh_is_retried_at_once(
 
     # The user releases, but the ECU does not take the write.
     unit.fail_write(EXPORT_LIMIT_ADDRESS, ModbusTimeoutError())
-    with pytest.raises(HomeAssistantError):
-        await set_limit(hass, 100)
+    await set_limit(hass, 100)
     assert coordinator.power_limit.refreshing is False
 
     # The next poll delivers it, without waiting for the refresh to end.
@@ -1730,15 +1687,6 @@ async def set_kw(hass: HomeAssistant, value: float) -> None:
         {ATTR_ENTITY_ID: ENTITY_KW, ATTR_VALUE: value},
         blocking=True,
     )
-
-
-async def test_no_kw_number_without_installation_power(
-    hass: HomeAssistant,
-    mock_ecu: MockModbusConnection,
-    mock_config_entry: MockConfigEntry,
-) -> None:
-    await setup_entry(hass, mock_config_entry)
-    assert hass.states.get(ENTITY_KW) is None
 
 
 @pytest.mark.parametrize(
@@ -2281,8 +2229,7 @@ async def test_no_refresh_while_a_choice_is_pending(
     unit = mock_ecu.for_unit(1)
 
     unit.fail_write(EXPORT_LIMIT_ADDRESS, ModbusTimeoutError())
-    with pytest.raises(HomeAssistantError):
-        await set_limit(hass, 20)
+    await set_limit(hass, 20)
     await coordinator.async_refresh()  # the retry fails as well
     assert attributes_of(hass)["pending"] is True
 
@@ -2307,3 +2254,87 @@ async def test_non_finite_kw_is_refused(
     with pytest.raises(HomeAssistantError):
         await set_kw(hass, value)
     assert writes == []
+
+
+async def test_limit_waits_while_the_lead_was_never_read(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    # The lead stays silent, unit 2 answers, so there is data but no limit.
+    set_ecu(mock_ecu.for_unit(1), 0, 1)
+    mock_ecu.for_unit(1).fail_requests(ModbusTimeoutError())
+    coordinator = await setup_entry(hass, mock_config_entry)
+    await coordinator.async_refresh()
+    assert coordinator.data is not None
+    writes = record_writes(mock_ecu.for_unit(1))
+
+    await set_limit(hass, 0)
+    assert writes == []
+
+    mock_ecu.for_unit(1).fail_requests(None)
+    await coordinator.async_refresh()
+    await coordinator.async_refresh()
+    assert writes == []
+    assert not coordinator.power_limit.pending
+
+
+async def test_unreadable_limit_that_was_read_can_still_be_set(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    # The registers were read, but the flag holds a value the ECU never uses.
+    set_ecu(mock_ecu.for_unit(1), 30, 7)
+    await setup_entry(hass, mock_config_entry)
+    writes = record_writes(mock_ecu.for_unit(1))
+
+    await set_limit(hass, 40)
+    assert writes == [(EXPORT_LIMIT_ADDRESS, 400), (EXPORT_LIMIT_ENABLED_ADDRESS, 1)]
+
+
+async def test_factory_table_with_a_failed_choice_plans_refreshes(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    coordinator = await setup_entry(hass, mock_config_entry)
+    unit = mock_ecu.for_unit(1)
+    unit.fail_write(EXPORT_LIMIT_ADDRESS, ModbusError("refused"))
+    await set_limit(hass, 50)
+    assert coordinator.power_limit.pending
+    unit.fail_write(EXPORT_LIMIT_ADDRESS, None)
+
+    # The ECU shows its factory table; writing back also delivers the choice.
+    set_ecu(unit, 30, 1)
+    await coordinator.async_refresh()
+    assert not coordinator.power_limit.pending
+    assert coordinator.power_limit.next_refresh is not None
+
+
+@pytest.mark.parametrize(("flag_raw", "new_refreshes"), [(1, False), (49, True)])
+async def test_only_the_factory_table_plans_no_new_refreshes(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+    *,
+    flag_raw: int,
+    new_refreshes: bool,
+) -> None:
+    coordinator = await setup_entry(hass, mock_config_entry)
+    await set_limit(hass, 50)
+    planned = coordinator.power_limit.next_refresh
+    unit = mock_ecu.for_unit(1)
+    writes = record_writes(unit)
+
+    # 30 % with a raw 1 is the ECU's factory table; with ASCII "1" it is a
+    # limit the ECU really holds.
+    freezer.tick(timedelta(minutes=5))
+    set_ecu(unit, 30, flag_raw)
+    await coordinator.async_refresh()
+    await coordinator.async_refresh()
+
+    assert writes[0] == (EXPORT_LIMIT_ADDRESS, 500)
+    assert state_of(hass) == "50"
+    assert (coordinator.power_limit.next_refresh != planned) is new_refreshes

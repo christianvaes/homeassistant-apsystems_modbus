@@ -237,15 +237,16 @@ They contain no addresses or serial numbers. Turn on debug logging in the same
 menu if you can reproduce the problem.
 
 For an untested ECU, also add a register dump. Disable the integration first,
-because a second Modbus connection disturbs the ECU. Then run on a computer in
-your network:
+because a second Modbus connection disturbs the ECU. Download
+[dump_registers.py](https://raw.githubusercontent.com/christianvaes/homeassistant-apsystems_modbus/main/tools/dump_registers.py)
+and run it on a computer in your network:
 
 ```bash
-python3 tools/dump_registers.py --host <ecu-ip> --units 1 2 --out .
+python3 dump_registers.py --host <ecu-ip> --units 1 2 --out .
 ```
 
-It only reads. Replace the serial numbers in the JSON file before sharing, and
-enable the integration again.
+It only reads and leaves the serial numbers out of the file. Enable the
+integration again afterwards.
 
 ## Removing the integration
 

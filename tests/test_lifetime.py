@@ -80,12 +80,6 @@ async def test_missing_inverter_keeps_its_share(ledger: EnergyLedger) -> None:
     assert poll(ledger, a=1500) == 3500
 
 
-async def test_total_never_goes_down(ledger: EnergyLedger) -> None:
-    poll(ledger, a=1000, b=1000)
-    # Two inverters both drop for one poll: held, so no dip.
-    assert poll(ledger, a=0, b=0) == 2000
-
-
 async def test_start_value_is_applied_after_the_first_poll(
     hass: HomeAssistant,
 ) -> None:

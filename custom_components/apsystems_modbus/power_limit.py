@@ -22,7 +22,12 @@ only the last one partly shows, as a failed poll. So:
 * While a choice exists, the ECU is made to follow it: once two polls in a
   row read something else, the choice is written again, at most once per
   ten minutes and at most ``MAX_REWRITES`` times; then it waits for a new
-  choice. A failed user write is retried at the next usable poll.
+  choice. A failed user write is retried after the next healthy poll, also
+  at most once per ten minutes. Before the limit was read once, a choice
+  waits for that read, so nothing is written blind.
+* The ECU sometimes falls back to its factory table (30 % with the flag as a
+  raw 1; written values read back as ASCII). The inverters do not follow it,
+  so writing the choice back only repairs the table and plans no refreshes.
 * The choice is sent again ("refreshed") 15 and 75 minutes after it was set,
   once after Home Assistant starts, and, below 100, after the connection to
   the ECU broke, which is how a restart of the ECU shows. The ECU only
@@ -50,8 +55,7 @@ between two reads without ``write_lock``. Calling it while holding
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
@@ -109,6 +113,8 @@ OVERSHOOT_MARGIN_W = 20.0
 Measured on DS3-L: at 0 % they still deliver 15-31 W, at 20 % up to 17 W
 more than the nominal limit.
 """
+FACTORY_LIMIT = 30
+FACTORY_FLAG_RAW = 1
 MAX_OVERSHOOT_REFRESHES = 2
 """Refreshes for an inverter above the limit before the user is told instead."""
 STORAGE_VERSION = 1
@@ -160,6 +166,14 @@ def effective_limit(measurements: Measurements) -> int | None:
     return round(percent)
 
 
+def factory_table(measurements: Measurements) -> bool:
+    """Whether the ECU reports its factory table rather than a written limit."""
+    return (
+        measurements.export_limit == FACTORY_LIMIT
+        and measurements.export_limit_enabled_raw == FACTORY_FLAG_RAW
+    )
+
+
 def _step_for(percent: int) -> int:
     """Return the in-between value for a refresh of ``percent``."""
     return percent - 1 if percent > 0 else 1
@@ -181,7 +195,8 @@ class PowerLimit:
         self.desired: int | None = None
         """The limit the user chose; None until a choice is made or stored."""
         self.pending = False
-        """Whether a user write failed and still has to reach the ECU."""
+        """Whether the chosen limit still has to reach the ECU: a write failed,
+        or the limit was not read yet."""
         self.shown: int | None = None
         """The limit presented to the user."""
         self.deviations = 0
@@ -199,6 +214,8 @@ class PowerLimit:
         """Per register the value written since the last read of ``control``."""
         self._over_last_poll: set[int] = set()
         self._ecu_was_silent = False
+        self._limit_read = False
+        """Whether the limit registers were read through ``control`` once."""
         self._lock = asyncio.Lock()
 
     @property
@@ -260,13 +277,15 @@ class PowerLimit:
         From now on that read says what the ECU holds, not earlier writes.
         """
         self._written.clear()
+        self._limit_read = True
 
     async def async_set(self, value: float) -> None:
         """Apply a limit chosen by the user.
 
         Remembers the choice first, then writes it. When several calls arrive
-        at once, only the latest value is written. A failure raises a
-        translated error and leaves the choice pending for the next poll.
+        at once, only the latest value is written. A failed write leaves the
+        choice pending without an error, so an automation goes on.
+        Before the limit was read once, the choice waits for that read.
         """
         if not math.isfinite(value):
             raise HomeAssistantError(
@@ -280,7 +299,7 @@ class PowerLimit:
         if percent == self.desired and not self.pending and self.shown == percent:
             return
         self.desired = percent
-        self._remember()
+        self._store.async_delay_save(self._stored, 0)
         async with self._lock:
             if self.desired != percent:
                 return  # A later call took over.
@@ -288,24 +307,27 @@ class PowerLimit:
             # A new choice gets fresh chances before the user is told.
             self._reset_overshoot()
             self.rewrites = 0
+            if not self._limit_read:
+                # Not read yet, so a write could repeat the flag. The first
+                # healthy poll writes only what differs.
+                self.pending = True
+                _LOGGER.debug("Power limit %s %% is sent after the first read", percent)
+                return
             try:
                 await self._async_write(percent)
             except ModbusError as err:
                 self.pending = True
                 # A refresh under way would otherwise hold up the retry.
                 self._refresh.step_written = None
+                # The choice is kept and sent later, so no error that would
+                # stop an automation.
                 _LOGGER.warning(
                     "Power limit %s %% did not reach the ECU (%s); "
-                    "it is written again at the next poll",
+                    "it is written again once the ECU answers normally",
                     percent,
                     type(err).__name__,
                 )
-                _LOGGER.debug("Writing power limit %s %% failed: %s", percent, err)
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="power_limit_pending",
-                    translation_placeholders={"percent": str(percent)},
-                ) from err
+                return
             self.pending = False
             self._last_written = now
             self._plan_refreshes(now)
@@ -363,7 +385,7 @@ class PowerLimit:
                 int(value),
             )
             return
-        async with self._ready_link():
+        async with self._coordinator.ready_link():
             _LOGGER.debug("Writing power limit register %s = %s", address, int(value))
             try:
                 await write(value)
@@ -372,16 +394,10 @@ class PowerLimit:
                 raise
         self._written[address] = value
 
-    @asynccontextmanager
-    async def _ready_link(self) -> AsyncIterator[None]:
-        """Hold the coordinator's write turn for one register write."""
-        async with self._coordinator.ready_link():
-            yield
-
     async def async_after_poll(self, data: EcuData) -> None:
         """Update the shown value and make the ECU follow the chosen one.
 
-        Called by the coordinator once per successful poll, outside its
+        Called by the coordinator once per poll, also a failed one, outside its
         ``write_lock``: after the reads, or before the inverters that went
         unanswered last time. Only this poll's reads count.
         """
@@ -398,14 +414,11 @@ class PowerLimit:
             return
         now = dt_util.utcnow()
 
-        # A write right after an unanswered request would queue up behind it.
-        # That inverter is read after this step from then on, so writing
-        # waits for one poll at most.
-        busy = data.ended_in_timeout
+        # Writes that can wait only go after a healthy poll.
+        busy = not self._coordinator.poll_healthy
         if (written := self._refresh.step_written) is not None:
             # A refresh is under way and the ECU reports its in-between value.
-            # Finishing only needs the ECU to answer, so it is not held up by
-            # silent inverters.
+            # Inverters that went unanswered before do not hold the finish up.
             if now - written >= STEP_HOLD and not busy:
                 await self._async_finish_refresh(now)
             return
@@ -574,11 +587,6 @@ class PowerLimit:
         self.deviations = 0
         self._deviating = None
 
-    def _remember(self) -> None:
-        """Store the chosen limit for the next start."""
-        if self.desired is not None:
-            self._store.async_delay_save(self._stored, 0)
-
     async def async_save(self) -> None:
         """Write the chosen limit now, for an unload or reload."""
         if self.desired is not None:
@@ -605,7 +613,7 @@ class PowerLimit:
             self._refresh.left = 0
             return
         self._refresh.next_at = now + delay
-        self._refresh.left = max(count, 1)
+        self._refresh.left = count
 
     def _plan_refresh_by(self, due: datetime) -> None:
         """Make sure a refresh comes no later than ``due``."""
@@ -620,25 +628,37 @@ class PowerLimit:
         )
 
     async def _async_rewrite(self, reported: int, now: datetime) -> None:
-        """Write the chosen limit again because the ECU reports another one."""
+        """Write the chosen limit again because the ECU reports another one.
+
+        Only a refusal counts towards ``MAX_REWRITES``; an unanswered write
+        means a busy ECU and is tried again after a healthy poll.
+        """
         self.last_rewrite = now
+        measurements = self.control.measurements
+        factory = factory_table(measurements)
+        flag_raw = measurements.export_limit_enabled_raw
+        written = False
         async with self._lock:
             if (desired := self.desired) is None:
                 return
+            delivers_choice = self.pending
             try:
                 await self._async_write(desired)
             except ModbusError as err:
-                _LOGGER.debug("Rewriting power limit %s %% failed: %s", desired, err)
-                # An ECU that refuses writes is not written forever. A busy
-                # ECU or a choice that never arrived is tried again.
-                if self.pending or isinstance(err, ModbusTimeoutError):
+                _LOGGER.debug(
+                    "Rewriting power limit %s %% failed: %s",
+                    desired,
+                    type(err).__name__,
+                )
+                if isinstance(err, ModbusTimeoutError):
                     return
-                self.rewrites += 1
             else:
+                written = True
                 self.pending = False
                 self._last_written = now
-                self._plan_refreshes(now)
-                self.rewrites += 1
+                if delivers_choice or not factory:
+                    self._plan_refreshes(now)
+            self.rewrites += 1
         if self.rewrites >= MAX_REWRITES:
             _LOGGER.warning(
                 "The ECU keeps reporting a power limit of %s %% instead of %s %%; "
@@ -647,9 +667,14 @@ class PowerLimit:
                 desired,
             )
             return
+        if not written:
+            return
         _LOGGER.info(
-            "The ECU reported a power limit of %s %%; set it back to %s %%",
+            "The ECU reported a power limit of %s %% (flag register %s%s); "
+            "set it back to %s %%",
             reported,
+            flag_raw,
+            ", its factory table" if factory else "",
             desired,
         )
 
@@ -672,7 +697,11 @@ class PowerLimit:
                 await self._async_write(step, show=False)
             except ModbusError as err:
                 # Nothing changed; the next usable poll tries again.
-                _LOGGER.debug("Refreshing power limit %s %% failed: %s", desired, err)
+                _LOGGER.debug(
+                    "Refreshing power limit %s %% failed: %s",
+                    desired,
+                    type(err).__name__,
+                )
                 return
             self._refresh.step_written = dt_util.utcnow()
             self._refresh.last_started = now
@@ -688,15 +717,12 @@ class PowerLimit:
                 await self._async_write(desired)
             except ModbusError as err:
                 # The ECU stays on the in-between value until the next poll.
-                _LOGGER.debug("Finishing power limit refresh failed: %s", err)
+                _LOGGER.debug(
+                    "Finishing power limit refresh failed: %s", type(err).__name__
+                )
                 return
             refresh.step_written = None
             self._last_written = now
-            if self.pending:
-                # This write also delivered a choice that had failed earlier.
-                self.pending = False
-                self._plan_refreshes(now)
-                return
             refresh.left -= 1
             if refresh.left > 0 and refresh.last_started is not None:
                 refresh.next_at = refresh.last_started + REFRESH_REPEAT
