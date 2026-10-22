@@ -72,12 +72,15 @@ Home Assistant. Or in HACS, open the menu → *Custom repositories*, enter
 type *Integration*.
 
 Home Assistant discovers the ECU on your network. Accept it under *Settings →
-Devices & services*, or add it yourself:
+Devices & services*, or add it yourself with the IP address of the ECU (port
+502):
 
 [![Open your Home Assistant instance and start setting up APsystems Modbus.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=apsystems_modbus)
 
-The dialog explains every field. Leave the inverter addresses empty to find
-the inverters automatically.
+Leave the inverter addresses empty to find the inverters automatically. Enter
+the installation power (kW) if you want to set the power limit in kW, and the
+lifetime energy from the EMA app (kWh) if the counter should continue from
+there. Both can also be set later under *Configure*.
 
 You get one device for the ECU and one device per inverter.
 
@@ -92,10 +95,9 @@ You get one device for the ECU and one device per inverter.
   </tr>
 </table>
 
-Under *Configure* you can enter the installation power, correct the lifetime
-energy and reset the peak power. A lifetime correction counts once as
-production in the Energy dashboard. Undo that under *Settings → Tools →
-Statistics*.
+Under *Configure* you can also reset the peak power. A lifetime correction
+counts once as production in the Energy dashboard. Undo that under *Settings →
+Tools → Statistics*.
 
 ## Energy dashboard
 

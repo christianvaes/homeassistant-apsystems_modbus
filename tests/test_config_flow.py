@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from modbus_connection import ModbusConnectionError, ModbusTimeoutError
 from modbus_connection.mock import MockModbusConnection
 import pytest
@@ -99,6 +101,14 @@ async def test_user_flow_with_addresses(
     assert [item["unit_id"] for item in result["data"][CONF_INVERTERS]] == [2]
 
 
+async def finish(hass: HomeAssistant, flow_id: str, user_input: dict) -> None:
+    """Submit the form again now that the cause is fixed and create the entry."""
+    result = await submit_and_wait(hass, flow_id, user_input)
+    assert result["step_id"] == "confirm", result
+    result = await hass.config_entries.flow.async_configure(flow_id, {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
 async def test_invalid_addresses(
     hass: HomeAssistant, mock_ecu: MockModbusConnection
 ) -> None:
@@ -109,6 +119,8 @@ async def test_invalid_addresses(
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {CONF_UNIT_IDS: "invalid_unit_ids"}
+
+    await finish(hass, result["flow_id"], USER_INPUT)
 
 
 @pytest.mark.parametrize(
@@ -129,6 +141,10 @@ async def test_connection_errors(
     assert result["step_id"] == "user"
     assert result["errors"] == {"base": expected}
 
+    # The user plugs in the cable or switches Modbus on and tries again.
+    mock_ecu.for_unit(1).fail_requests(None)
+    await finish(hass, result["flow_id"], USER_INPUT)
+
 
 async def test_silent_ecu_with_addresses(
     hass: HomeAssistant, mock_ecu: MockModbusConnection
@@ -142,17 +158,25 @@ async def test_silent_ecu_with_addresses(
     # The ECU answered the connection but nothing lives on that address.
     assert result["errors"] == {"base": "no_inverters"}
 
+    mock_ecu.for_unit(1).fail_requests(None)
+    await finish(hass, result["flow_id"], {**USER_INPUT, CONF_UNIT_IDS: "1"})
+
 
 async def test_no_inverters_found(
-    hass: HomeAssistant, mock_modbus_connection: MockModbusConnection
+    hass: HomeAssistant, mock_ecu: MockModbusConnection
 ) -> None:
     # The ECU is reachable, but no address answers.
     for unit_id in (1, 2):
-        mock_modbus_connection.for_unit(unit_id).fail_requests(ModbusTimeoutError())
+        mock_ecu.for_unit(unit_id).fail_requests(ModbusTimeoutError())
     result = await start_user_flow(hass)
 
     result = await submit_and_wait(hass, result["flow_id"], USER_INPUT)
     assert result["errors"] == {"base": "no_inverters"}
+
+    # Addresses assigned in EMA Manager: the search finds them.
+    for unit_id in (1, 2):
+        mock_ecu.for_unit(unit_id).fail_requests(None)
+    await finish(hass, result["flow_id"], USER_INPUT)
 
 
 async def test_unsupported_layout(
@@ -164,6 +188,9 @@ async def test_unsupported_layout(
     result = await submit_and_wait(hass, result["flow_id"], USER_INPUT)
     assert result["errors"] == {"base": "unsupported_layout"}
 
+    mock_ecu.for_unit(1).holding[40070] = 101
+    await finish(hass, result["flow_id"], USER_INPUT)
+
 
 async def test_not_apsystems(
     hass: HomeAssistant, mock_ecu: MockModbusConnection
@@ -173,6 +200,35 @@ async def test_not_apsystems(
 
     result = await submit_and_wait(hass, result["flow_id"], USER_INPUT)
     assert result["errors"] == {"base": "not_apsystems"}
+
+    # The right address this time.
+    mock_ecu.for_unit(1).holding[40000] = 21365
+    await finish(hass, result["flow_id"], USER_INPUT)
+
+
+async def test_unexpected_error_during_search(
+    hass: HomeAssistant, mock_ecu: MockModbusConnection
+) -> None:
+    result = await start_user_flow(hass)
+    with patch(
+        "custom_components.apsystems_modbus.config_flow.ApsystemsModbusConfigFlow._async_probe",
+        side_effect=RuntimeError("boom"),
+    ):
+        result = await submit_and_wait(hass, result["flow_id"], USER_INPUT)
+    assert result["errors"] == {"base": "unknown"}
+
+    await finish(hass, result["flow_id"], USER_INPUT)
+
+
+async def test_dhcp_discovery_of_a_silent_device_is_aborted(
+    hass: HomeAssistant, mock_ecu: MockModbusConnection
+) -> None:
+    mock_ecu.for_unit(1).fail_requests(ModbusTimeoutError())
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_DHCP}, data=DISCOVERY
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "cannot_connect"
 
 
 async def test_already_configured(
