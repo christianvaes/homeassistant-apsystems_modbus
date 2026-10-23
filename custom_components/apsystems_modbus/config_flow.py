@@ -132,6 +132,13 @@ def _power_placeholders(hass: HomeAssistant, inverters: int) -> dict[str, str]:
     }
 
 
+def _answers(entry: ConfigEntry) -> bool:
+    return (
+        entry.state is ConfigEntryState.LOADED
+        and entry.runtime_data.last_update_success
+    )
+
+
 @dataclass(frozen=True)
 class FoundInverter:
     """An inverter answering on one Modbus address."""
@@ -308,10 +315,18 @@ class ApsystemsModbusConfigFlow(ConfigFlow, domain=DOMAIN):
                 entry.data.get(CONF_MAC) == mac
                 or entry.data.get(CONF_HOST) == discovery_info.ip
             ):
+                updates: dict[str, str] = {}
                 if entry.data.get(CONF_HOST) != discovery_info.ip:
+                    updates[CONF_HOST] = discovery_info.ip
+                elif entry.data.get(CONF_MAC) is None and _answers(entry):
+                    # So a later address change is followed. Only while it
+                    # answers here: another device may have its old address.
+                    updates[CONF_MAC] = mac
+                if updates:
                     self.hass.config_entries.async_update_entry(
-                        entry, data={**entry.data, CONF_HOST: discovery_info.ip}
+                        entry, data={**entry.data, **updates}
                     )
+                if CONF_HOST in updates:
                     self.hass.config_entries.async_schedule_reload(entry.entry_id)
                 return self.async_abort(reason="already_configured")
         await self.async_set_unique_id(mac)

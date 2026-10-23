@@ -200,27 +200,39 @@ class EnergyLedger:
         if math.isfinite(watts) and watts > self.peak_power:
             self.peak_power = watts
 
-    def finish_poll(self, *, complete: bool) -> None:
+    def finish_poll(self, *, complete: bool, read: bool = True) -> None:
         """Update the reported total after a poll and apply a requested start.
 
         The start value includes today's production of every inverter, so it
-        waits for a poll in which all of them were read.
+        waits for a poll in which all were read and no reading waits for
+        confirmation, which would otherwise count twice.
         """
         counted = sum(counter.total for counter in self._counters.values())
         if self._calibrate_to is not None and self._counters:
-            self._polls_waiting += 1
-            if complete or self._polls_waiting >= APPLY_START_AFTER_POLLS:
-                self._offset = self._calibrate_to - counted
-                self._reported = self._calibrate_to
-                self._calibrate_to = None
+            if read:
+                self._polls_waiting += 1
+            if (
+                complete and not self._waiting_reading
+            ) or self._polls_waiting >= APPLY_START_AFTER_POLLS:
+                self.calibrate(self._calibrate_to)
                 return
         self._reported = max(self._reported, self._offset + counted)
 
     def calibrate(self, lifetime_wh: float) -> None:
-        """Continue counting from ``lifetime_wh`` from now on."""
+        """Continue counting from ``lifetime_wh``, once no reading waits."""
+        if self._waiting_reading and self._polls_waiting < APPLY_START_AFTER_POLLS:
+            self._calibrate_to = lifetime_wh
+            return
         counted = sum(counter.total for counter in self._counters.values())
         self._offset = lifetime_wh - counted
         self._reported = lifetime_wh
+        self._calibrate_to = None
+        self._polls_waiting = 0
+
+    @property
+    def _waiting_reading(self) -> bool:
+        """Whether a reading above 0 waits: a reset to 0 adds nothing."""
+        return any(counter.pending for counter in self._counters.values())
 
     def set_peak_power(self, watts: float) -> None:
         """Set the peak power, for example to reset it."""

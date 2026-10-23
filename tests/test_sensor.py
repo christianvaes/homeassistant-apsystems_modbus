@@ -247,6 +247,59 @@ async def test_lifetime_stays_available_while_ecu_is_unreachable(
     assert float(lifetime.state) == pytest.approx(1.096, abs=0.001)
 
 
+async def test_last_data_update_changes_only_with_new_values(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    entity_id = "sensor.apsystems_ecu_last_data_update"
+    await setup_entry(hass, mock_config_entry)
+    before = hass.states.get(entity_id).state
+
+    # A restart while the ECU is silent keeps the time from before.
+    freezer.tick(timedelta(minutes=10))
+    for unit_id in (1, 2):
+        mock_ecu.for_unit(unit_id).fail_requests(ModbusTimeoutError())
+    await hass.config_entries.async_reload(mock_config_entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert hass.states.get(entity_id).state == before
+
+    # The ECU answers again with the same values, as at night.
+    for unit_id in (1, 2):
+        mock_ecu.for_unit(unit_id).fail_requests(None)
+    coordinator = mock_config_entry.runtime_data
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state == before
+
+    # New values move it on.
+    set_float32(mock_ecu.for_unit(1), 40154, 600.0)
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state != before
+
+
+async def test_last_data_update_keeps_its_time_over_a_restart_at_night(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    entity_id = "sensor.apsystems_ecu_last_data_update"
+    # Night: the counters stand at 0 after the reset.
+    for unit_id in (1, 2):
+        set_float32(mock_ecu.for_unit(unit_id), 40154, 0.0)
+    await setup_entry(hass, mock_config_entry)
+    before = hass.states.get(entity_id).state
+
+    # A restart on the next ECU day, with nothing of today in storage yet.
+    freezer.tick(timedelta(days=1))
+    await hass.config_entries.async_reload(mock_config_entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert hass.states.get(entity_id).state == before
+
+
 async def test_lifetime_survives_removing_and_adding_again(
     hass: HomeAssistant,
     mock_ecu: MockModbusConnection,

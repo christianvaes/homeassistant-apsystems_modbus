@@ -294,6 +294,51 @@ async def test_dhcp_updates_host_of_known_ecu(
     await hass.config_entries.async_unload(entry.entry_id)
 
 
+async def test_dhcp_remembers_the_mac_of_an_ecu_added_by_hand(
+    hass: HomeAssistant, mock_ecu: MockModbusConnection
+) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="704000000001",
+        data={CONF_HOST: HOST, CONF_PORT: 502, CONF_INVERTERS: INVERTERS},
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    with patch.object(hass.config_entries, "async_schedule_reload") as reload:
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_DHCP}, data=DISCOVERY
+        )
+    assert result["reason"] == "already_configured"
+    assert entry.data[CONF_MAC] == "80:97:1b:00:00:01"
+    # Only the MAC was new: no reload needed.
+    reload.assert_not_called()
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_dhcp_takes_no_mac_from_an_address_that_does_not_answer(
+    hass: HomeAssistant, mock_ecu: MockModbusConnection
+) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="704000000001",
+        data={CONF_HOST: HOST, CONF_PORT: 502, CONF_INVERTERS: INVERTERS},
+    )
+    entry.add_to_hass(hass)
+    # The ECU moved away; another device now has its old address.
+    for unit_id in (1, 2):
+        mock_ecu.for_unit(unit_id).fail_requests(ModbusTimeoutError())
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_DHCP}, data=DISCOVERY
+    )
+    assert CONF_MAC not in entry.data
+    await hass.config_entries.async_unload(entry.entry_id)
+
+
 @pytest.mark.parametrize(
     ("silent", "reason"), [(True, "cannot_connect"), (False, "not_apsystems")]
 )

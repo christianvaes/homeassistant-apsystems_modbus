@@ -109,6 +109,59 @@ async def test_calibrate_continues_from_the_new_value(ledger: EnergyLedger) -> N
     assert poll(ledger, a=1500) == 20_500
 
 
+async def test_calibrate_waits_while_a_reading_waits(ledger: EnergyLedger) -> None:
+    poll(ledger, a=1000)
+    # A jump waits for confirmation; the new value already includes it.
+    poll(ledger, a=4000)
+    ledger.calibrate(20_000)
+    assert ledger.lifetime == 1000
+    assert poll(ledger, a=4100) == 20_000
+    assert poll(ledger, a=4200) == 20_100
+
+
+async def test_calibrate_is_not_held_up_by_the_nightly_reset(
+    ledger: EnergyLedger,
+) -> None:
+    poll(ledger, a=3000)
+    # The counter dropped to 0 at the reset and waits for production.
+    poll(ledger, a=0)
+    ledger.calibrate(50_000)
+    assert ledger.lifetime == 50_000
+    assert poll(ledger, a=500) == 50_500
+
+
+async def test_start_value_does_not_count_a_waiting_reading_twice(
+    hass: HomeAssistant, ledger: EnergyLedger
+) -> None:
+    # Counted 1 kWh this morning, then removed and added again hours later.
+    poll(ledger, a=1000)
+    await ledger.async_save()
+    await async_request_start(hass, KEY, 100_000)
+    again = EnergyLedger(hass, KEY)
+    await again.async_load()
+
+    assert poll(again, a=4000) == 1000
+    assert poll(again, a=4100) == 100_000
+    assert poll(again, a=4200) == 100_100
+
+
+async def test_polls_without_data_do_not_count_towards_the_start(
+    hass: HomeAssistant,
+) -> None:
+    await async_request_start(hass, KEY, 50_000)
+    ledger = EnergyLedger(hass, KEY)
+    await ledger.async_load()
+    # Inverter b never answers, so no poll is complete.
+    poll(ledger, complete=False, a=1000)
+    for _ in range(20):
+        ledger.finish_poll(complete=False, read=False)
+    assert ledger.lifetime != 50_000
+
+    for _ in range(11):
+        poll(ledger, complete=False, a=1000)
+    assert ledger.lifetime == 50_000
+
+
 async def test_peak_power(ledger: EnergyLedger) -> None:
     ledger.record_power(4200)
     ledger.record_power(3000)

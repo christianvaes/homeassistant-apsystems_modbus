@@ -195,6 +195,10 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         self._reported: set[int] = set()
         self._snapshot: dict[int, tuple[float | None, float | None]] = {}
         self._last_change: datetime | None = None
+        self._daily_at_start = {
+            unit: counter for unit, (_, counter) in self.daily.items()
+        }
+        """Today's counters from storage, to tell new values after a restart."""
 
     async def _async_update_data(self) -> EcuData:
         try:
@@ -292,6 +296,12 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
             self._stuck.discard(unit_id)
             return False
         else:
+            if not report.updated and not report.failed:
+                # Not asked, because a write left the ECU busy: it waits and
+                # does not count as silent.
+                waiting.insert(0, unit_id)
+                data.ended_in_timeout = True
+                return True
             self._take(data, unit_id, inverter, report)
             # A late status block holds the ECU up just as much.
             data.ended_in_timeout = any(
@@ -348,6 +358,9 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         report = UpdateReport()
         for name in names:
             async with self.write_lock:
+                if self.link_busy:
+                    # A write in between went unanswered: the ECU is busy.
+                    break
                 try:
                     await inverter.async_poll((name,), report)
                 except ModbusTimeoutError:
@@ -438,11 +451,18 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         Units whose last request went unanswered come after all others, in
         turn, so each of them is tried again. A unit that a cycle did not
         reach comes early. After a complete cycle the order is plain again.
+        While the ECU is silent, each poll starts with the unit whose turn is
+        longest ago, unanswered or not, so any answer is noticed.
         """
-        return sorted(
+        order = sorted(
             self.inverters,
             key=lambda unit: (unit in self._stuck, self._last_turn.get(unit, 0), unit),
         )
+        if self._silent:
+            probe = min(order, key=lambda unit: (self._last_turn.get(unit, 0), unit))
+            order.remove(probe)
+            order.insert(0, probe)
+        return order
 
     def _serial_matches(self, unit_id: int, inverter: Inverter) -> bool:
         """Tell whether the values on this address belong to its device.
@@ -639,15 +659,33 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         )
 
         self.ledger.record_power(fresh_power)
-        self.ledger.finish_poll(complete=len(data.available) == len(self.inverters))
+        self.ledger.finish_poll(
+            complete=len(data.available) == len(self.inverters),
+            read=bool(data.available),
+        )
         self.ledger.schedule_save()
 
-        fresh = {
-            unit
-            for unit, value in snapshot.items()
-            if self._snapshot.get(unit) != value
-        }
-        if fresh or self._last_change is None:
+        if any(self._changed(unit, value) for unit, value in snapshot.items()) or (
+            self._last_change is None
+        ):
             self._last_change = dt_util.utcnow()
         self._snapshot.update(snapshot)
         data.last_change = self._last_change
+
+    def _changed(self, unit_id: int, value: tuple[float | None, float | None]) -> bool:
+        """Whether an inverter reports other values than at its last read."""
+        if unit_id in self._snapshot:
+            return self._snapshot[unit_id] != value
+        # First read after a restart: so an unchanged night is no news. No
+        # stored counter of today means the nightly reset, so 0.
+        return self._daily_at_start.get(unit_id, 0.0) != value[0]
+
+    @property
+    def last_change(self) -> datetime | None:
+        """When the ECU last reported different values, also before a restart."""
+        return self._last_change
+
+    def restore_last_change(self, when: datetime) -> None:
+        """Take the time from before a restart, until the ECU reports a change."""
+        if self._last_change is None:
+            self._last_change = when

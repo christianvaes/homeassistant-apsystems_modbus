@@ -38,6 +38,7 @@ from custom_components.apsystems_modbus.coordinator import (
     settle_time,
     until_next_poll,
 )
+from custom_components.apsystems_modbus.ecu import Inverter
 
 from .conftest import INVERTERS, add_inverter, set_float32
 
@@ -990,6 +991,62 @@ async def test_a_silent_ecu_marks_no_single_unit(
     await coordinator.async_refresh()
     assert coordinator.data.available == {1, 2, 3, 4}
     assert coordinator.poll_healthy
+
+
+async def test_a_silent_ecu_is_asked_through_every_inverter(
+    hass: HomeAssistant, mock_ecu: MockModbusConnection
+) -> None:
+    entry = four_inverter_entry(mock_ecu)
+    await setup_entry(hass, entry)
+    coordinator = entry.runtime_data
+    # Unit 4 goes unanswered while the others answer, then the ECU falls silent.
+    mock_ecu.for_unit(4).fail_requests(ModbusTimeoutError())
+    await coordinator.async_refresh()
+    for unit_id in (1, 2, 3):
+        mock_ecu.for_unit(unit_id).fail_requests(ModbusTimeoutError())
+    reads = record_reads(mock_ecu)
+    tried = []
+    for _ in range(4):
+        reads.clear()
+        await coordinator.async_refresh()
+        tried.append(reads[0][0])
+
+    # Unit 4 gets its turn too, so an answer from any inverter is noticed.
+    assert sorted(tried) == [1, 2, 3, 4]
+
+
+async def test_a_unit_not_asked_because_of_a_busy_ecu_still_waits(
+    hass: HomeAssistant, mock_ecu: MockModbusConnection
+) -> None:
+    entry = four_inverter_entry(mock_ecu)
+    await setup_entry(hass, entry)
+    coordinator = entry.runtime_data
+    reads = record_reads(mock_ecu)
+    unit = mock_ecu.for_unit(3)
+    recorded = unit.read_holding_registers
+
+    async def write_waits_meanwhile(address: int, count: int) -> list[int]:
+        if address == 40052:
+            # A user write queues up for the link while unit 3 is read.
+            hass.async_create_task(coordinator.power_limit.async_set(50))
+            for _ in range(5):
+                await asyncio.sleep(0)
+        return await recorded(address, count)
+
+    async def unanswered(self: Inverter, percent: float) -> None:
+        raise ModbusTimeoutError
+
+    unit.read_holding_registers = write_waits_meanwhile  # type: ignore[method-assign]
+    with patch.object(Inverter, "async_set_export_limit", unanswered):
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+
+    # The write went first and got no answer, so unit 4 was not asked. It
+    # waits, so the cycle counts as cut short.
+    assert {unit_id for unit_id, _ in reads} == {1, 2, 3}
+    assert coordinator.data.available == {1, 2, 3}
+    assert coordinator.data.cut_short
+    assert not coordinator.poll_healthy
 
 
 async def test_long_silence_of_the_ecu_shows_a_notice(

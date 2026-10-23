@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
@@ -39,7 +40,7 @@ PARALLEL_UPDATES = 0
 class EcuSensorDescription(SensorEntityDescription):
     """A total computed over all inverters."""
 
-    value_fn: Callable[[EcuData], StateType | datetime]
+    value_fn: Callable[[EcuData], StateType]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -86,13 +87,13 @@ ECU_SENSORS: tuple[EcuSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda data: data.online,
     ),
-    EcuSensorDescription(
-        key="last_data_update",
-        translation_key="last_data_update",
-        device_class=SensorDeviceClass.TIMESTAMP,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: data.last_change,
-    ),
+)
+
+LAST_DATA_UPDATE = SensorEntityDescription(
+    key="last_data_update",
+    translation_key="last_data_update",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    entity_category=EntityCategory.DIAGNOSTIC,
 )
 
 
@@ -291,6 +292,7 @@ async def async_setup_entry(
     entities: list[SensorEntity] = [
         EcuSensor(coordinator, description) for description in ECU_SENSORS
     ]
+    entities.append(LastDataUpdateSensor(coordinator, LAST_DATA_UPDATE))
     entities.extend(
         LedgerSensor(coordinator, description) for description in LEDGER_SENSORS
     )
@@ -326,9 +328,30 @@ class EcuSensor(EcuEntity, SensorEntity):
     entity_description: EcuSensorDescription
 
     @property
-    def native_value(self) -> StateType | datetime:
+    def native_value(self) -> StateType:
         """Return the current total."""
         return _rounded(self.entity_description.value_fn(self.coordinator.data))
+
+
+class LastDataUpdateSensor(EcuEntity, RestoreSensor):
+    """When the ECU last reported new values, also while silent and after restarts."""
+
+    async def async_added_to_hass(self) -> None:
+        """Take over the time from before a restart."""
+        await super().async_added_to_hass()
+        last = await self.async_get_last_sensor_data()
+        if last is not None and isinstance(last.native_value, datetime):
+            self.coordinator.restore_last_change(last.native_value)
+
+    @property
+    def available(self) -> bool:
+        """Available once a time is known."""
+        return self.coordinator.last_change is not None
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return when the ECU last reported new values."""
+        return self.coordinator.last_change
 
 
 class InverterSensor(InverterEntity, SensorEntity):
