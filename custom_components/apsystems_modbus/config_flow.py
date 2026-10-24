@@ -340,10 +340,10 @@ class ApsystemsModbusConfigFlow(ConfigFlow, domain=DOMAIN):
                 unit.require_timeout(PROBE_TIMEOUT)
                 marker = await _marker(unit)
         except ModbusError:
-            return self.async_abort(reason="cannot_connect")
-        if marker is None:
-            return self.async_abort(reason="cannot_connect")
-        if marker != SUNSPEC_MARKER:
+            marker = None
+        # The MAC block is APsystems'. An ECU that is starting, busy or has
+        # Modbus off is still offered: the search after accepting tells why.
+        if marker is not None and marker != SUNSPEC_MARKER:
             return self.async_abort(reason="not_apsystems")
 
         self.context["title_placeholders"] = {CONF_HOST: self._host}

@@ -13,12 +13,12 @@
         "data_description": {
           "host": "IP address of the ECU on the wired network.",
           "port": "502 unless you changed it.",
-          "unit_ids": "Leave empty to search automatically, or enter the addresses from EMA Manager, for example 1-8 or 1, 2, 5."
+          "unit_ids": "Leave empty to search automatically, or enter the addresses from the EMA Manager app, for example 1-8 or 1, 2, 5."
         }
       },
       "reconfigure": {
         "title": "Change the connection",
-        "description": "Inverters are recognised by their ID from EMA Manager, so changing an address keeps their history.",
+        "description": "Inverters are recognised by their ID from the EMA Manager app, so changing an address keeps their history.",
         "data": {
           "host": "Host",
           "port": "Port",
@@ -27,12 +27,12 @@
         "data_description": {
           "host": "IP address of the ECU on the wired network.",
           "port": "502 unless you changed it.",
-          "unit_ids": "Leave empty to search automatically, or enter the addresses from EMA Manager, for example 1-8 or 1, 2, 5."
+          "unit_ids": "Leave empty to search automatically, or enter the addresses from the EMA Manager app, for example 1-8 or 1, 2, 5."
         }
       },
       "dhcp_confirm": {
         "title": "APsystems ECU found",
-        "description": "Set up the APsystems ECU at {host}? Make sure Modbus is enabled on the ECU (EMA Manager, Local Access → Workspace → Modbus settings) and that nothing else polls it over Modbus."
+        "description": "Set up the APsystems ECU at {host}? Make sure Modbus is enabled on the ECU (EMA Manager app, Local Access → Workspace → Modbus settings) and that nothing else polls it over Modbus."
       },
       "confirm": {
         "title": "Inverters found: {count}",
@@ -52,9 +52,9 @@
     },
     "error": {
       "cannot_connect": "No answer from the ECU. Check the IP address and connect the ECU by Ethernet cable. Modbus TCP does not work over Wi-Fi.",
-      "modbus_disabled": "The ECU refused the connection. Modbus is off by default: press the AP button on the ECU, connect to its Wi-Fi, open EMA Manager with Local Access and enable Modbus under Workspace → Modbus settings with an address for every inverter. Then try again.",
+      "modbus_disabled": "The ECU refused the connection. Modbus is off by default: press the AP button on the ECU, connect to its Wi-Fi, open the EMA Manager app with Local Access and enable Modbus under Workspace → Modbus settings with an address for every inverter. Then try again.",
       "not_apsystems": "The device at this address is not an APsystems ECU.",
-      "no_inverters": "No inverter answered. Give each inverter an address in the Modbus settings of EMA Manager (Local Access), or enter the addresses here.",
+      "no_inverters": "No inverter answered. If the ECU has just started, try again in a few minutes. Otherwise give each inverter an address in the Modbus settings of the EMA Manager app (Local Access), or enter the addresses here.",
       "ecu_busy": "The ECU stopped answering during the search. Stop other Modbus clients, wait five minutes and try again.",
       "unsupported_layout": "The register layout differs from the tested ECU-R. Please share a register dump in an issue.",
       "invalid_unit_ids": "Enter addresses between 1 and 247, for example 1-8 or 1, 2, 5.",
@@ -198,11 +198,11 @@
     },
     "addresses_changed": {
       "title": "Inverter has a new address",
-      "description": "Inverter {id} got a new address in the Modbus settings of EMA Manager ({old} → {new}). Its values are unavailable until you take this over. Choose Reconfigure in the menu of this integration. Devices and history are kept."
+      "description": "Inverter {id} got a new address in the Modbus settings of the EMA Manager app ({old} → {new}). Its values are unavailable until you take this over. Choose Reconfigure in the menu of this integration. Devices and history are kept."
     },
     "ecu_not_answering": {
       "title": "The APsystems ECU does not answer",
-      "description": "The ECU has not answered for two hours. Check that it has power and is connected with an Ethernet cable, that its IP address is still right (Reconfigure in the menu of this integration) and that Modbus is still on in EMA Manager. This notice disappears when the ECU answers again."
+      "description": "The ECU has not answered for two hours. Check that it has power and is connected with an Ethernet cable, that its IP address is still right (Reconfigure in the menu of this integration) and that Modbus is still on in the EMA Manager app. This notice disappears when the ECU answers again."
     }
   }
 }

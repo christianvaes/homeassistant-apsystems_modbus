@@ -227,9 +227,9 @@ automation:
 
 | Message | What to do |
 |---|---|
-| The ECU refused the connection | Modbus is off: enable it in EMA Manager and assign addresses |
+| The ECU refused the connection | Modbus is off: enable it in the EMA Manager app and assign addresses |
 | No answer from the ECU | Check the IP address and the Ethernet cable |
-| No inverter answered | Assign addresses in EMA Manager or enter them manually |
+| No inverter answered | Just after a restart of the ECU, try again in a few minutes. Otherwise assign addresses in the EMA Manager app or enter them manually |
 | The ECU stopped answering | Stop other Modbus clients, wait five minutes, try again |
 | Register layout differs | Share a register dump in an issue |
 | Inverter has a new address | Choose Reconfigure in the menu of the integration |

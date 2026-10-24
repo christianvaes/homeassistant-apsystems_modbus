@@ -220,15 +220,28 @@ async def test_unexpected_error_during_search(
     await finish(hass, result["flow_id"], USER_INPUT)
 
 
-async def test_dhcp_discovery_of_a_silent_device_is_aborted(
-    hass: HomeAssistant, mock_ecu: MockModbusConnection
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (ModbusTimeoutError(), "no_inverters"),
+        (ModbusConnectionError("Connection refused"), "modbus_disabled"),
+    ],
+)
+async def test_dhcp_offers_an_ecu_that_does_not_answer_yet(
+    hass: HomeAssistant, mock_ecu: MockModbusConnection, error: Exception, expected: str
 ) -> None:
-    mock_ecu.for_unit(1).fail_requests(ModbusTimeoutError())
+    # Starting, busy, or Modbus still off: the card is shown anyway.
+    for unit_id in (1, 2):
+        mock_ecu.for_unit(unit_id).fail_requests(error)
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": SOURCE_DHCP}, data=DISCOVERY
     )
-    assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "cannot_connect"
+    assert result["step_id"] == "dhcp_confirm"
+
+    # Accepting it while it still does not answer says why.
+    result = await submit_and_wait(hass, result["flow_id"], {})
+    assert result["step_id"] == "user"
+    assert result["errors"] == {"base": expected}
 
 
 async def test_already_configured(
@@ -339,22 +352,14 @@ async def test_dhcp_takes_no_mac_from_an_address_that_does_not_answer(
     await hass.config_entries.async_unload(entry.entry_id)
 
 
-@pytest.mark.parametrize(
-    ("silent", "reason"), [(True, "cannot_connect"), (False, "not_apsystems")]
-)
 async def test_dhcp_ignores_devices_that_are_not_an_ecu(
-    hass: HomeAssistant,
-    mock_modbus_connection: MockModbusConnection,
-    silent: bool,
-    reason: str,
+    hass: HomeAssistant, mock_modbus_connection: MockModbusConnection
 ) -> None:
-    if silent:
-        mock_modbus_connection.for_unit(1).fail_requests(ModbusTimeoutError())
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": SOURCE_DHCP}, data=DISCOVERY
     )
     assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == reason
+    assert result["reason"] == "not_apsystems"
 
 
 async def test_reconfigure(

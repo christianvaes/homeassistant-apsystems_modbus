@@ -13,12 +13,12 @@
         "data_description": {
           "host": "IP-adres van de ECU op het bekabelde netwerk.",
           "port": "502, tenzij je het hebt aangepast.",
-          "unit_ids": "Leeg laten om automatisch te zoeken, of de adressen uit EMA Manager invullen, bijvoorbeeld 1-8 of 1, 2, 5."
+          "unit_ids": "Leeg laten om automatisch te zoeken, of de adressen uit de EMA Manager-app invullen, bijvoorbeeld 1-8 of 1, 2, 5."
         }
       },
       "reconfigure": {
         "title": "Verbinding wijzigen",
-        "description": "Omvormers worden herkend aan hun ID uit EMA Manager. Een ander adres behoudt dus de historie.",
+        "description": "Omvormers worden herkend aan hun ID uit de EMA Manager-app. Een ander adres behoudt dus de historie.",
         "data": {
           "host": "Host",
           "port": "Poort",
@@ -27,12 +27,12 @@
         "data_description": {
           "host": "IP-adres van de ECU op het bekabelde netwerk.",
           "port": "502, tenzij je het hebt aangepast.",
-          "unit_ids": "Leeg laten om automatisch te zoeken, of de adressen uit EMA Manager invullen, bijvoorbeeld 1-8 of 1, 2, 5."
+          "unit_ids": "Leeg laten om automatisch te zoeken, of de adressen uit de EMA Manager-app invullen, bijvoorbeeld 1-8 of 1, 2, 5."
         }
       },
       "dhcp_confirm": {
         "title": "APsystems ECU gevonden",
-        "description": "De APsystems ECU op {host} instellen? Controleer dat Modbus op de ECU aan staat (EMA Manager, Lokale toegang → Werkruimte → Modbus-instellingen) en dat niets anders hem via Modbus uitleest."
+        "description": "De APsystems ECU op {host} instellen? Controleer dat Modbus op de ECU aan staat (EMA Manager-app, Lokale toegang → Werkruimte → Modbus-instellingen) en dat niets anders hem via Modbus uitleest."
       },
       "confirm": {
         "title": "Gevonden omvormers: {count}",
@@ -52,9 +52,9 @@
     },
     "error": {
       "cannot_connect": "Geen antwoord van de ECU. Controleer het IP-adres en sluit de ECU aan via een netwerkkabel. Modbus TCP werkt niet via wifi.",
-      "modbus_disabled": "De ECU weigerde de verbinding. Modbus staat standaard uit: druk op de AP-knop van de ECU, verbind met zijn wifi-netwerk, open EMA Manager via Lokale toegang en zet Modbus aan onder Werkruimte → Modbus-instellingen, met een adres per omvormer. Probeer het daarna opnieuw.",
+      "modbus_disabled": "De ECU weigerde de verbinding. Modbus staat standaard uit: druk op de AP-knop van de ECU, verbind met zijn wifi-netwerk, open de EMA Manager-app via Lokale toegang en zet Modbus aan onder Werkruimte → Modbus-instellingen, met een adres per omvormer. Probeer het daarna opnieuw.",
       "not_apsystems": "Het apparaat op dit adres is geen APsystems ECU.",
-      "no_inverters": "Geen enkele omvormer antwoordde. Geef elke omvormer een adres in de Modbus-instellingen van EMA Manager (Lokale toegang), of vul de adressen hier in.",
+      "no_inverters": "Geen enkele omvormer antwoordde. Is de ECU net gestart, probeer het dan over een paar minuten opnieuw. Geef anders elke omvormer een adres in de Modbus-instellingen van de EMA Manager-app (Lokale toegang), of vul de adressen hier in.",
       "ecu_busy": "De ECU stopte met antwoorden tijdens het zoeken. Stop andere Modbus-clients, wacht vijf minuten en probeer het opnieuw.",
       "unsupported_layout": "De registerindeling wijkt af van de geteste ECU-R. Deel een registerdump in een issue.",
       "invalid_unit_ids": "Vul adressen tussen 1 en 247 in, bijvoorbeeld 1-8 of 1, 2, 5.",
@@ -134,11 +134,11 @@
     },
     "addresses_changed": {
       "title": "Omvormer heeft een nieuw adres",
-      "description": "Omvormer {id} heeft in de Modbus-instellingen van EMA Manager een nieuw adres gekregen ({old} → {new}). Tot je dit overneemt, zijn de waarden niet beschikbaar. Kies Herconfigureer in het menu van deze integratie. Apparaten en historie blijven behouden."
+      "description": "Omvormer {id} heeft in de Modbus-instellingen van de EMA Manager-app een nieuw adres gekregen ({old} → {new}). Tot je dit overneemt, zijn de waarden niet beschikbaar. Kies Herconfigureer in het menu van deze integratie. Apparaten en historie blijven behouden."
     },
     "ecu_not_answering": {
       "title": "De APsystems ECU antwoordt niet",
-      "description": "De ECU antwoordt al twee uur niet. Controleer of hij stroom heeft en met een netwerkkabel is aangesloten, of het IP-adres nog klopt (Herconfigureer in het menu van deze integratie) en of Modbus nog aan staat in EMA Manager. Deze melding verdwijnt zodra de ECU weer antwoordt."
+      "description": "De ECU antwoordt al twee uur niet. Controleer of hij stroom heeft en met een netwerkkabel is aangesloten, of het IP-adres nog klopt (Herconfigureer in het menu van deze integratie) en of Modbus nog aan staat in de EMA Manager-app. Deze melding verdwijnt zodra de ECU weer antwoordt."
     }
   }
 }

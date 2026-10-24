@@ -13,12 +13,12 @@
         "data_description": {
           "host": "Adresse IP de l'ECU sur le réseau filaire.",
           "port": "502, sauf si vous l'avez modifié.",
-          "unit_ids": "Laissez vide pour une recherche automatique, ou saisissez les adresses définies dans EMA Manager, par exemple 1-8 ou 1, 2, 5."
+          "unit_ids": "Laissez vide pour une recherche automatique, ou saisissez les adresses définies dans l'application EMA Manager, par exemple 1-8 ou 1, 2, 5."
         }
       },
       "reconfigure": {
         "title": "Modifier la connexion",
-        "description": "Les onduleurs sont reconnus par leur ID dans EMA Manager. Si vous modifiez une adresse, l'historique de l'onduleur est conservé.",
+        "description": "Les onduleurs sont reconnus par leur ID dans l'application EMA Manager. Si vous modifiez une adresse, l'historique de l'onduleur est conservé.",
         "data": {
           "host": "Hôte",
           "port": "Port",
@@ -27,12 +27,12 @@
         "data_description": {
           "host": "Adresse IP de l'ECU sur le réseau filaire.",
           "port": "502, sauf si vous l'avez modifié.",
-          "unit_ids": "Laissez vide pour une recherche automatique, ou saisissez les adresses définies dans EMA Manager, par exemple 1-8 ou 1, 2, 5."
+          "unit_ids": "Laissez vide pour une recherche automatique, ou saisissez les adresses définies dans l'application EMA Manager, par exemple 1-8 ou 1, 2, 5."
         }
       },
       "dhcp_confirm": {
         "title": "ECU APsystems trouvée",
-        "description": "Configurer l'ECU APsystems à l'adresse {host} ? Vérifiez que Modbus est activé sur l'ECU (EMA Manager, Local Access → Workspace → Modbus settings) et qu'aucun autre client Modbus ne l'interroge."
+        "description": "Configurer l'ECU APsystems à l'adresse {host} ? Vérifiez que Modbus est activé sur l'ECU (application EMA Manager, Local Access → Workspace → Modbus settings) et qu'aucun autre client Modbus ne l'interroge."
       },
       "confirm": {
         "title": "Onduleurs trouvés : {count}",
@@ -52,9 +52,9 @@
     },
     "error": {
       "cannot_connect": "Aucune réponse de l'ECU. Vérifiez l'adresse IP et connectez l'ECU par câble Ethernet. Modbus TCP ne fonctionne pas en Wi-Fi.",
-      "modbus_disabled": "L'ECU a refusé la connexion. Modbus est désactivé par défaut. Appuyez sur le bouton AP de l'ECU, connectez-vous à son Wi-Fi, ouvrez EMA Manager avec Local Access et activez Modbus dans Workspace → Modbus settings avec une adresse pour chaque onduleur. Réessayez ensuite.",
+      "modbus_disabled": "L'ECU a refusé la connexion. Modbus est désactivé par défaut. Appuyez sur le bouton AP de l'ECU, connectez-vous à son Wi-Fi, ouvrez l'application EMA Manager avec Local Access et activez Modbus dans Workspace → Modbus settings avec une adresse pour chaque onduleur. Réessayez ensuite.",
       "not_apsystems": "L'appareil à cette adresse n'est pas une ECU APsystems.",
-      "no_inverters": "Aucun onduleur n'a répondu. Attribuez une adresse à chaque onduleur dans EMA Manager (Local Access → Workspace → Modbus settings), ou saisissez les adresses ici.",
+      "no_inverters": "Aucun onduleur n'a répondu. Si l'ECU vient de démarrer, réessayez dans quelques minutes. Sinon, attribuez une adresse à chaque onduleur dans l'application EMA Manager (Local Access → Workspace → Modbus settings), ou saisissez les adresses ici.",
       "ecu_busy": "L'ECU a cessé de répondre pendant la recherche. Arrêtez les autres clients Modbus, attendez cinq minutes et réessayez.",
       "unsupported_layout": "La disposition des registres diffère de celle de l'ECU-R testée. Merci de partager un relevé des registres dans une issue GitHub.",
       "invalid_unit_ids": "Saisissez des adresses entre 1 et 247, par exemple 1-8 ou 1, 2, 5.",
@@ -134,11 +134,11 @@
     },
     "addresses_changed": {
       "title": "L'onduleur a une nouvelle adresse",
-      "description": "L'onduleur {id} a reçu une nouvelle adresse dans Modbus settings d'EMA Manager ({old} → {new}). Ses valeurs restent indisponibles jusqu'à ce que vous preniez ce changement en compte. Choisissez Reconfigurer dans le menu de cette intégration. Les appareils et l'historique sont conservés."
+      "description": "L'onduleur {id} a reçu une nouvelle adresse dans Modbus settings de l'application EMA Manager ({old} → {new}). Ses valeurs restent indisponibles jusqu'à ce que vous preniez ce changement en compte. Choisissez Reconfigurer dans le menu de cette intégration. Les appareils et l'historique sont conservés."
     },
     "ecu_not_answering": {
       "title": "L'ECU APsystems ne répond pas",
-      "description": "L'ECU ne répond plus depuis deux heures. Vérifiez qu'elle est alimentée et branchée avec un câble réseau, que son adresse IP est toujours correcte (Reconfigurer dans le menu de cette intégration) et que Modbus est toujours activé dans EMA Manager. Ce message disparaît dès que l'ECU répond à nouveau."
+      "description": "L'ECU ne répond plus depuis deux heures. Vérifiez qu'elle est alimentée et branchée avec un câble réseau, que son adresse IP est toujours correcte (Reconfigurer dans le menu de cette intégration) et que Modbus est toujours activé dans l'application EMA Manager. Ce message disparaît dès que l'ECU répond à nouveau."
     }
   }
 }

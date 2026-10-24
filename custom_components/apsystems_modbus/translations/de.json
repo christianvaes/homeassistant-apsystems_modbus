@@ -13,12 +13,12 @@
         "data_description": {
           "host": "IP-Adresse der ECU im kabelgebundenen Netzwerk.",
           "port": "502, außer du hast ihn geändert.",
-          "unit_ids": "Für die automatische Suche leer lassen oder die Adressen aus EMA Manager eingeben, zum Beispiel 1-8 oder 1, 2, 5."
+          "unit_ids": "Für die automatische Suche leer lassen oder die Adressen aus der App EMA Manager eingeben, zum Beispiel 1-8 oder 1, 2, 5."
         }
       },
       "reconfigure": {
         "title": "Verbindung ändern",
-        "description": "Wechselrichter werden anhand ihrer ID aus EMA Manager erkannt. Wenn du eine Adresse änderst, bleibt der Verlauf des Wechselrichters erhalten.",
+        "description": "Wechselrichter werden anhand ihrer ID aus der App EMA Manager erkannt. Wenn du eine Adresse änderst, bleibt der Verlauf des Wechselrichters erhalten.",
         "data": {
           "host": "Host",
           "port": "Port",
@@ -27,12 +27,12 @@
         "data_description": {
           "host": "IP-Adresse der ECU im kabelgebundenen Netzwerk.",
           "port": "502, außer du hast ihn geändert.",
-          "unit_ids": "Für die automatische Suche leer lassen oder die Adressen aus EMA Manager eingeben, zum Beispiel 1-8 oder 1, 2, 5."
+          "unit_ids": "Für die automatische Suche leer lassen oder die Adressen aus der App EMA Manager eingeben, zum Beispiel 1-8 oder 1, 2, 5."
         }
       },
       "dhcp_confirm": {
         "title": "APsystems ECU gefunden",
-        "description": "Die APsystems ECU unter {host} einrichten? Achte darauf, dass Modbus auf der ECU aktiviert ist (EMA Manager, Local Access → Workspace → Modbus settings) und nichts anderes sie über Modbus abfragt."
+        "description": "Die APsystems ECU unter {host} einrichten? Achte darauf, dass Modbus auf der ECU aktiviert ist (App EMA Manager, Local Access → Workspace → Modbus settings) und nichts anderes sie über Modbus abfragt."
       },
       "confirm": {
         "title": "Gefundene Wechselrichter: {count}",
@@ -52,9 +52,9 @@
     },
     "error": {
       "cannot_connect": "Keine Antwort von der ECU. Prüfe die IP-Adresse und verbinde die ECU per Netzwerkkabel. Modbus TCP funktioniert nicht über WLAN.",
-      "modbus_disabled": "Die ECU hat die Verbindung abgelehnt. Modbus ist ab Werk deaktiviert. Drücke die AP-Taste an der ECU, verbinde dich mit ihrem WLAN, öffne EMA Manager mit Local Access und aktiviere Modbus unter Workspace → Modbus settings mit einer Adresse für jeden Wechselrichter. Versuche es dann erneut.",
+      "modbus_disabled": "Die ECU hat die Verbindung abgelehnt. Modbus ist ab Werk deaktiviert. Drücke die AP-Taste an der ECU, verbinde dich mit ihrem WLAN, öffne die App EMA Manager mit Local Access und aktiviere Modbus unter Workspace → Modbus settings mit einer Adresse für jeden Wechselrichter. Versuche es dann erneut.",
       "not_apsystems": "Das Gerät unter dieser Adresse ist keine APsystems ECU.",
-      "no_inverters": "Kein Wechselrichter hat geantwortet. Gib jedem Wechselrichter eine Adresse in EMA Manager (Local Access → Workspace → Modbus settings) oder gib die Adressen hier ein.",
+      "no_inverters": "Kein Wechselrichter hat geantwortet. Wenn die ECU gerade gestartet ist, versuche es in ein paar Minuten erneut. Gib sonst jedem Wechselrichter eine Adresse in der App EMA Manager (Local Access → Workspace → Modbus settings) oder gib die Adressen hier ein.",
       "ecu_busy": "Die ECU hat während der Suche nicht mehr geantwortet. Beende andere Modbus-Clients, warte fünf Minuten und versuche es erneut.",
       "unsupported_layout": "Das Registerlayout weicht von dem der getesteten ECU-R ab. Bitte teile einen Register-Dump in einem Issue.",
       "invalid_unit_ids": "Gib Adressen zwischen 1 und 247 ein, zum Beispiel 1-8 oder 1, 2, 5.",
@@ -134,11 +134,11 @@
     },
     "addresses_changed": {
       "title": "Wechselrichter hat eine neue Adresse",
-      "description": "Wechselrichter {id} hat in den Modbus settings von EMA Manager eine neue Adresse bekommen ({old} → {new}). Bis du das übernimmst, sind seine Werte nicht verfügbar. Wähle Neu konfigurieren im Menü dieser Integration. Geräte und Verlauf bleiben erhalten."
+      "description": "Wechselrichter {id} hat in den Modbus settings der App EMA Manager eine neue Adresse bekommen ({old} → {new}). Bis du das übernimmst, sind seine Werte nicht verfügbar. Wähle Neu konfigurieren im Menü dieser Integration. Geräte und Verlauf bleiben erhalten."
     },
     "ecu_not_answering": {
       "title": "Die APsystems ECU antwortet nicht",
-      "description": "Die ECU antwortet seit zwei Stunden nicht. Prüfe, ob sie Strom hat und per Netzwerkkabel verbunden ist, ob ihre IP-Adresse noch stimmt (Neu konfigurieren im Menü dieser Integration) und ob Modbus in EMA Manager noch eingeschaltet ist. Dieser Hinweis verschwindet, sobald die ECU wieder antwortet."
+      "description": "Die ECU antwortet seit zwei Stunden nicht. Prüfe, ob sie Strom hat und per Netzwerkkabel verbunden ist, ob ihre IP-Adresse noch stimmt (Neu konfigurieren im Menü dieser Integration) und ob Modbus in der App EMA Manager noch eingeschaltet ist. Dieser Hinweis verschwindet, sobald die ECU wieder antwortet."
     }
   }
 }
