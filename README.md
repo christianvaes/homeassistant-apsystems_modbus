@@ -1,7 +1,7 @@
 # <img src="custom_components/apsystems_modbus/brand/icon@2x.png" alt="" width="40" align="top"> APsystems Modbus for Home Assistant
 
 [![Release](https://img.shields.io/github/v/release/christianvaes/homeassistant-apsystems_modbus)](https://github.com/christianvaes/homeassistant-apsystems_modbus/releases)
-[![HACS](https://img.shields.io/badge/HACS-custom-41BDF5)](https://hacs.xyz)
+[![HACS](https://img.shields.io/badge/HACS-default-41BDF5)](https://hacs.xyz)
 [![CI](https://github.com/christianvaes/homeassistant-apsystems_modbus/actions/workflows/ci.yml/badge.svg)](https://github.com/christianvaes/homeassistant-apsystems_modbus/actions/workflows/ci.yml)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.10%2B-18BCF2)](https://www.home-assistant.io)
 [![Maintained](https://img.shields.io/badge/Maintained-yes-brightgreen)](https://github.com/christianvaes/homeassistant-apsystems_modbus/commits/main)
@@ -66,10 +66,8 @@ Troubleshooting).
 
 [![Open your Home Assistant instance and open this repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=christianvaes&repository=homeassistant-apsystems_modbus&category=integration)
 
-Open the repository in HACS with the button, choose *Download* and restart
-Home Assistant. Or in HACS, open the menu → *Custom repositories*, enter
-`https://github.com/christianvaes/homeassistant-apsystems_modbus` and choose
-type *Integration*.
+Open the repository in HACS with the button, or search for *APsystems Modbus*
+in HACS. Choose *Download* and restart Home Assistant.
 
 Home Assistant discovers the ECU on your network. Accept it under *Settings →
 Devices & services*, or add it yourself with the IP address of the ECU (port
