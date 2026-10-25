@@ -33,7 +33,7 @@ Unofficial, not affiliated with APsystems. Use at your own risk.
 
 | ECU | Serial starts with | Modbus from firmware | Status |
 |---|---|---|---|
-| ECU-R | 2160 | 1.3.7 | Tested (1.3.23, DS3 inverters) |
+| ECU-R | 2160 | 1.3.7 | Tested (1.3.23 and 1.3.24, DS3 inverters) |
 | ECU-R Pro | 2162 | 2.0.2 | Expected to work, not tested |
 | ECU-C | 215 | C1.1.3 | Expected to work, not tested |
 | ECU-B | 2163 | not supported by APsystems | Not supported |
@@ -108,8 +108,8 @@ In the Energy dashboard, choose *Edit dashboard → Solar panels*. Pick
 **Power limit** on the ECU device curtails the output of all inverters, in
 whole percent. 100 % is no limit.
 
-- Inverters follow a change within a few minutes, in tests up to about 15.
-- At 0 % each inverter still delivers about 20 to 30 W.
+- Inverters follow a change within a few minutes, in tests up to about 20.
+- At 0 % each inverter still delivers about 10 to 30 W.
 - If the ECU loses the limit, for example after a restart, the integration
   sends it again. This works best with the installation power entered under
   *Configure*.
@@ -117,8 +117,8 @@ whole percent. 100 % is no limit.
   in kW. If an inverter then delivers clearly more than the limit allows, a
   notice under *Settings → Repairs* asks you to check the installation power.
 - If the ECU is not answering, a new limit is sent once it answers again.
-- If an inverter stays limited, set the limit to 100 %. If that does not help,
-  switch the ECU off for a minute.
+- If an inverter stays limited, set the limit to 99 % and then to 100 %. If
+  that does not help, switch the ECU off for a minute.
 
 <img src="images/ecu.png" alt="ECU device with inverter output and the power limit in percent and in kW" width="360">
 
@@ -160,8 +160,7 @@ when energy prices are negative.
   stops, the inverters come back on by themselves.
 - When the ECU answers slowly, the command waits. The inverters may then
   deliver up to the power limit.
-- Tested on an ECU-R 2160 (firmware 1.3.23) with DS3 inverters. If another ECU
-  keeps the inverters off after you turn the switch on, turn it off and on
+- If the inverters stay off after you turn the switch on, turn it off and on
   again.
 
 Example: stop all production at negative energy prices, also after a restart
@@ -213,11 +212,12 @@ automation:
   totals can differ about 1 % from the EMA app.
 - At night inverters read 0 V and 0 Hz. Energy today follows the ECU, which
   resets it during the night.
-- The ECU sometimes stops answering for about half an hour, also to the EMA
-  app. It recovers by itself. Meanwhile the values show unavailable.
-- When an inverter does not answer the ECU, the ECU has no new values for it.
-  The integration then keeps its last values for up to 15 minutes, also in the
-  totals. After that the inverter shows unavailable until it answers again.
+- The ECU sometimes stops answering for a while, also to the EMA app. It
+  recovers by itself. Home Assistant keeps the last values for 15 minutes,
+  then shows them as unavailable. Lifetime energy stays, so the Energy
+  dashboard has no gap.
+- Now and then the ECU misses an inverter for one round. That inverter then
+  shows Online off until the next round.
 - A replaced inverter on the same address keeps counting under its existing
   device.
 
@@ -229,11 +229,12 @@ automation:
 | No answer from the ECU | Check the IP address and the Ethernet cable |
 | No inverter answered | Just after a restart of the ECU, try again in a few minutes. Otherwise assign addresses in the EMA Manager app or enter them manually |
 | The ECU stopped answering | Stop other Modbus clients, wait five minutes, try again |
+| The ECU is unstable and often does not answer | In your router, block internet access for the ECU's cable connection. Leave the ECU on Wi-Fi so the EMA app keeps working. In tests this made the ECU stable again |
 | Register layout differs | Share a register dump in an issue |
 | Inverter has a new address | Choose Reconfigure in the menu of the integration |
 
 **Reporting an issue:** add the diagnostics from the menu of the integration.
-They contain no addresses or serial numbers. Turn on debug logging in the same
+They contain no IP address or serial numbers. Turn on debug logging in the same
 menu if you can reproduce the problem.
 
 For an untested ECU, also add a register dump. Disable the integration first,
