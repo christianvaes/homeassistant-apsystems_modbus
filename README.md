@@ -21,7 +21,7 @@ Features:
   current, frequency, temperature, status and event code. Each panel gets its
   own power, voltage and current.
 - **Control: power limit and inverter output.** Curtail the output of all
-  inverters, in percent or in kW, or turn it off completely. By hand or from
+  inverters, in percent or in kW, or turn them all off. By hand or from
   an automation. With a dynamic tariff you can stop at negative prices and go
   back to full power when they are positive again.
 - **Setup**: the ECU is discovered on your network and the inverters are found
@@ -158,8 +158,6 @@ when energy prices are negative.
 - The switch shows your choice, not what the inverters do. Check Power.
 - The switch stays off after a restart of Home Assistant. If Home Assistant
   stops, the inverters come back on by themselves.
-- When the ECU answers slowly, the command waits. The inverters may then
-  deliver up to the power limit.
 - If the inverters stay off after you turn the switch on, turn it off and on
   again.
 
@@ -223,7 +221,7 @@ automation:
 
 ## Troubleshooting
 
-| Message | What to do |
+| Problem | What to do |
 |---|---|
 | The ECU refused the connection | Modbus is off: enable it in the EMA Manager app and assign addresses |
 | No answer from the ECU | Check the IP address and the Ethernet cable |
