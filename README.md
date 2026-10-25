@@ -34,19 +34,22 @@ Unofficial, not affiliated with APsystems. Use at your own risk.
 | ECU | Serial starts with | Modbus from firmware | Status |
 |---|---|---|---|
 | ECU-R | 2160 | 1.3.7 | Tested (1.3.23 and 1.3.24, DS3 inverters) |
-| ECU-R Pro | 2162 | 2.0.2 | Expected to work, not tested |
-| ECU-C | 215 | C1.1.3 | Expected to work, not tested |
+| ECU-R Pro | 2162 | 2.0.2 | Works, [reported by users](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2) (2.1.32A, DS3 inverters) |
+| ECU-C | 215 | C1.1.3 | Works, [reported by a user](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2#discussioncomment-19124766) |
 | ECU-B | 2163 | not supported by APsystems | Not supported |
 
-Supported ECUs have a SunSpec logo on the device. Other inverter models should
-work but only DS3 is tested. For the EZ1, use the core `apsystems` integration.
+Supported ECUs have a SunSpec logo on the device. DS3 inverters are tested.
+[Users report](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2#discussioncomment-19124766)
+that QS1 and YC600 work too. Other models should work. For the EZ1, use the
+core `apsystems` integration.
 Have an untested ECU or inverter? Open an issue with a register dump (see
 Troubleshooting).
 
 ## Before you start
 
-1. Connect the ECU with an **Ethernet cable** and give it a fixed IP address.
-   Modbus only works on the wired port.
+1. Give the ECU a fixed IP address. On an ECU-R, Modbus only works over the
+   **Ethernet cable**. Users report that an ECU-R Pro and ECU-C also work over
+   Wi-Fi.
 2. **Enable Modbus on the ECU.** It is off by default. The setting is in the
    *EMA Manager* app, which normally needs an installer account. Without one,
    use the ECU's local access point:
@@ -109,7 +112,8 @@ In the Energy dashboard, choose *Edit dashboard → Solar panels*. Pick
 whole percent. 100 % is no limit.
 
 - Inverters follow a change within a few minutes, in tests up to about 20.
-- At 0 % each inverter still delivers about 10 to 30 W.
+- At 0 % an ECU-R lets each inverter still deliver about 10 to 30 W. An
+  ECU-R Pro turns them fully off.
 - If the ECU loses the limit, for example after a restart, the integration
   sends it again. This works best with the installation power entered under
   *Configure*.
