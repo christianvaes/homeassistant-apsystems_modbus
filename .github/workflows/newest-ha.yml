@@ -1,0 +1,30 @@
+name: Newest Home Assistant
+
+# Runs the tests every Thursday against the newest Home Assistant, a beta
+# included: the test package follows the betas. A change there then shows up
+# a week before the release (betas and releases come out on Wednesdays).
+on:
+  schedule:
+    - cron: "17 5 * * 4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test against the newest Home Assistant
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@v7
+      - name: Install dependencies
+        run: |
+          uv venv --python 3.14 .venv
+          uv pip install --python .venv/bin/python -r requirements_dev.txt
+          uv pip install --python .venv/bin/python --upgrade pytest-homeassistant-custom-component
+      - name: Test
+        run: scripts/test
