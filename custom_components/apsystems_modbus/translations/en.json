@@ -4,14 +4,14 @@
     "step": {
       "user": {
         "title": "Connect to the ECU",
-        "description": "The ECU must be connected by Ethernet cable and Modbus must be enabled on the ECU (EMA Manager app via the ECU's access point: Local Access → Workspace → Modbus settings). Nothing else should poll the ECU over Modbus, because it overloads easily.",
+        "description": "Modbus must be enabled on the ECU (EMA Manager app via the ECU's access point: Local Access → Workspace → Modbus settings). An ECU-R only works over its Ethernet cable. Nothing else should poll the ECU over Modbus, because it overloads easily.",
         "data": {
           "host": "Host",
           "port": "Port",
           "unit_ids": "Inverter addresses"
         },
         "data_description": {
-          "host": "IP address of the ECU on the wired network.",
+          "host": "IP address of the ECU.",
           "port": "502 unless you changed it.",
           "unit_ids": "Leave empty to search automatically, or enter the addresses from the EMA Manager app, for example 1-8 or 1, 2, 5."
         }
@@ -25,7 +25,7 @@
           "unit_ids": "Inverter addresses"
         },
         "data_description": {
-          "host": "IP address of the ECU on the wired network.",
+          "host": "IP address of the ECU.",
           "port": "502 unless you changed it.",
           "unit_ids": "Leave empty to search automatically, or enter the addresses from the EMA Manager app, for example 1-8 or 1, 2, 5."
         }
@@ -42,7 +42,7 @@
           "lifetime_energy": "Lifetime energy (optional)"
         },
         "data_description": {
-          "installation_power": "Output of all inverters together, for example {count} × 0.73 = {ds3_l_kw} kW for DS3-L or {count} × 0.88 = {ds3_kw} kW for DS3. Leave empty to set the limit in percent only.",
+          "installation_power": "Output of all inverters together, for example {count} × 0.73 = {ds3_l_kw} kW for DS3-L or {count} × 0.88 = {ds3_kw} kW for DS3. Lets the integration check that every inverter follows the power limit, and adds a control in kW.",
           "lifetime_energy": "Total energy from the EMA app, in kWh. The lifetime counter continues from here. Leave empty to start at 0."
         }
       }
@@ -51,7 +51,7 @@
       "scan": "Searching for inverters. This takes up to a minute."
     },
     "error": {
-      "cannot_connect": "No answer from the ECU. Check the IP address and connect the ECU by Ethernet cable. Modbus TCP does not work over Wi-Fi.",
+      "cannot_connect": "No answer from the ECU. Check the IP address and the network connection.",
       "modbus_disabled": "The ECU refused the connection. Modbus is off by default: press the AP button on the ECU, connect to its Wi-Fi, open the EMA Manager app with Local Access and enable Modbus under Workspace → Modbus settings with an address for every inverter. Then try again.",
       "not_apsystems": "The device at this address is not an APsystems ECU.",
       "no_inverters": "No inverter answered. If the ECU has just started, try again in a few minutes. Otherwise give each inverter an address in the Modbus settings of the EMA Manager app (Local Access), or enter the addresses here.",
@@ -83,7 +83,7 @@
         "data_description": {
           "lifetime_energy": "Change only to correct the counter. It continues from the value you enter. The Energy dashboard shows the change once as production in that hour. You can adjust that hour under Settings → Tools → Statistics.",
           "peak_power": "Highest total power so far. Set to 0 to start over.",
-          "installation_power": "Output of all inverters together, for example {count} × 0.73 = {ds3_l_kw} kW for DS3-L or {count} × 0.88 = {ds3_kw} kW for DS3. Leave empty to set the limit in percent only."
+          "installation_power": "Output of all inverters together, for example {count} × 0.73 = {ds3_l_kw} kW for DS3-L or {count} × 0.88 = {ds3_kw} kW for DS3. Lets the integration check that every inverter follows the power limit, and adds a control in kW."
         }
       }
     },
@@ -143,7 +143,7 @@
           "off": "Off",
           "sleeping": "Sleeping",
           "starting": "Starting",
-          "mppt": "MPPT",
+          "mppt": "Producing",
           "throttled": "Throttled",
           "shutting_down": "Shutting down",
           "fault": "Fault",
@@ -202,7 +202,7 @@
     },
     "ecu_not_answering": {
       "title": "The APsystems ECU does not answer",
-      "description": "The ECU has not answered for two hours. Check that it has power and is connected with an Ethernet cable, that its IP address is still right (Reconfigure in the menu of this integration) and that Modbus is still on in the EMA Manager app. This notice disappears when the ECU answers again."
+      "description": "The ECU has not answered for two hours. Check that it has power and is connected to the network, that its IP address is still right (Reconfigure in the menu of this integration) and that Modbus is still on in the EMA Manager app. This notice disappears when the ECU answers again."
     }
   }
 }

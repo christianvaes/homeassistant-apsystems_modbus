@@ -37,7 +37,7 @@ from modbus_connection.model import (
     raw_register,
     string,
 )
-from modbus_connection.model.sunspec import bitfield32, enum16
+from modbus_connection.model.sunspec import enum16
 
 SUNSPEC_MARKER = "SunS"
 MANUFACTURER = "APsystems"
@@ -59,6 +59,10 @@ TWO_CHANNEL_MODELS = ("DS3", "YC600")
 """Known models. An unknown model gets all four channels, so none is missing."""
 SERIAL_PATTERN = re.compile(r"[0-9A-Za-z]{1,32}")
 """A serial number names the stored totals file, so only letters and digits."""
+
+NOT_IMPLEMENTED = 0xFFFF
+"""A register value that SunSpec reserves for a point the device leaves out."""
+NO_FIRMWARE = "V0"
 
 ENABLED_VALUES = frozenset({1, ord("1")})
 DISABLED_VALUES = frozenset({0, ord("0")})
@@ -180,17 +184,46 @@ async def async_check_controls(unit: ModbusUnit) -> None:
 
 
 class Status(Component):
-    """Serial number, operating state and event flags, in one read.
+    """Firmware, serial number, operating state and event flags, in one read.
 
     Read every poll while the ECU answers well, so a different inverter on a
     known address is noticed at the next such poll.
     """
 
-    register_ranges = ((40052, 40111),)
+    register_ranges = ((40044, 40111),)
 
+    version = string(40044, 8)
     serial_number = string(40052, 16)
     operating_state = enum16(40108, OperatingState)
-    events = bitfield32(40110, InverterEvent)
+    events_first = raw_register(40110)
+    events_second = raw_register(40111)
+
+    @property
+    def events(self) -> InverterEvent | None:
+        """Decode the event flags; ``None`` when the ECU leaves them unset.
+
+        SunSpec keeps the 16 flags of Evt1 in its second register. APsystems
+        reads them from the first one in its own examples, so both are taken
+        together. A register holding 0xFFFF means not implemented.
+        """
+        first, second = self.events_first, self.events_second
+        if first is None or second is None or NOT_IMPLEMENTED in (first, second):
+            return None
+        return InverterEvent(first | second)
+
+    @property
+    def firmware(self) -> str | None:
+        """Return the firmware of the inverter, or ``None`` if the ECU has none.
+
+        Only printable ASCII is kept. An ECU-R reports "V0", which says
+        nothing, so it counts as none.
+        """
+        text = "".join(
+            char for char in self.version or "" if char.isascii() and char.isprintable()
+        ).strip()
+        if not text or text == NO_FIRMWARE:
+            return None
+        return text
 
 
 class Measurements(Component):

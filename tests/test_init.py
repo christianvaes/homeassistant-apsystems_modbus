@@ -214,7 +214,7 @@ async def test_first_timeout_ends_the_cycle_and_backs_off(
         await coordinator.async_refresh()
     reads = record_reads(mock_ecu)
     await coordinator.async_refresh()
-    assert reads == [(1, 40124), (1, 40052), (4, 40124), (4, 40052), (3, 40124)]
+    assert reads == [(1, 40124), (1, 40044), (4, 40124), (4, 40044), (3, 40124)]
     assert coordinator.data.available == {1, 4}
     assert coordinator.data.cut_short is False
 
@@ -234,7 +234,7 @@ async def test_a_healthy_ecu_gets_the_same_requests_every_cycle(
     reads = record_reads(mock_ecu)
 
     plain = [
-        (unit_id, address) for unit_id in (1, 2, 3, 4) for address in (40124, 40052)
+        (unit_id, address) for unit_id in (1, 2, 3, 4) for address in (40124, 40044)
     ]
     for _ in range(3):
         reads.clear()
@@ -285,7 +285,7 @@ async def test_a_late_status_block_ends_the_cycle(
     coordinator = entry.runtime_data
     reads = record_reads(mock_ecu)
 
-    mock_ecu.for_unit(2).fail_read(40052, ModbusTimeoutError())
+    mock_ecu.for_unit(2).fail_read(40044, ModbusTimeoutError())
     await coordinator.async_refresh()
 
     # The measurements of unit 2 came in and count; units 3 and 4 wait.
@@ -304,7 +304,7 @@ async def test_a_struggling_ecu_reads_measurements_only_and_turns_move_on(
 
     mock_ecu.for_unit(2).fail_requests(ModbusTimeoutError())
     await coordinator.async_refresh()
-    assert reads == [(1, 40124), (1, 40052), (2, 40124)]
+    assert reads == [(1, 40124), (1, 40044), (2, 40124)]
 
     # Units 3 and 4 were not reached, so they go first; unit 2 goes last.
     # The status block waits while the ECU struggles.
@@ -320,11 +320,11 @@ async def test_a_struggling_ecu_reads_measurements_only_and_turns_move_on(
     await coordinator.async_refresh()
     assert reads == [
         (1, 40124),
-        (1, 40052),
+        (1, 40044),
         (3, 40124),
-        (3, 40052),
+        (3, 40044),
         (4, 40124),
-        (4, 40052),
+        (4, 40044),
         (2, 40124),
     ]
 
@@ -350,7 +350,7 @@ async def test_status_is_read_every_quarter_hour_while_slow(
 
     with one_inverter_per_poll():
         await coordinator.async_refresh()
-        assert reads == [(1, 40124), (1, 40052)]
+        assert reads == [(1, 40124), (1, 40044)]
         assert coordinator.data.cut_short is True
 
         # Slow now: the status of unit 2 is recent enough to wait.
@@ -362,7 +362,7 @@ async def test_status_is_read_every_quarter_hour_while_slow(
         reads.clear()
         freezer.tick(timedelta(minutes=16))
         await coordinator.async_refresh()
-        assert reads == [(3, 40124), (3, 40052)]
+        assert reads == [(3, 40124), (3, 40044)]
 
 
 async def test_a_silent_inverter_stays_last_when_polls_run_out_of_time(
@@ -776,7 +776,7 @@ async def test_start_reads_no_identity(
         spans = sorted(
             (e.address, e.count) for e in mock_ecu.for_unit(unit_id).read_events
         )
-        assert spans == [(40052, 60), (40124, 114)]
+        assert spans == [(40044, 68), (40124, 114)]
 
 
 async def test_impossible_power_reading_is_not_counted(
@@ -1026,7 +1026,7 @@ async def test_a_unit_not_asked_because_of_a_busy_ecu_still_waits(
     recorded = unit.read_holding_registers
 
     async def write_waits_meanwhile(address: int, count: int) -> list[int]:
-        if address == 40052:
+        if address == 40044:
             # A user write queues up for the link while unit 3 is read.
             hass.async_create_task(coordinator.power_limit.async_set(50))
             for _ in range(5):

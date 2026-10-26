@@ -31,12 +31,12 @@ Unofficial, not affiliated with APsystems. Use at your own risk.
 
 ## Supported hardware
 
-| ECU | Serial starts with | Modbus from firmware | Status |
-|---|---|---|---|
-| ECU-R | 2160 | 1.3.7 | Tested (1.3.23 and 1.3.24, DS3 inverters) |
-| ECU-R Pro | 2162 | 2.0.2 | Works, [reported by users](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2) (2.1.32A, DS3 inverters) |
-| ECU-C | 215 | C1.1.3 | Works, [reported by a user](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2#discussioncomment-19124766) |
-| ECU-B | 2163 | not supported by APsystems | Not supported |
+| ECU | Serial starts with | Modbus from firmware | Connection | Status |
+|---|---|---|---|---|
+| ECU-R | 2160 | 1.3.7 | Ethernet only | Tested (1.3.23 and 1.3.24, DS3 inverters) |
+| ECU-R Pro | 2162 | 2.0.2 | Ethernet or Wi-Fi | Works, [reported by users](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2) (2.1.32A, DS3 inverters) |
+| ECU-C | 215 | C1.1.3 | Ethernet or Wi-Fi | Works, [reported by a user](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2#discussioncomment-19124766) |
+| ECU-B | 2163 | not supported by APsystems | – | Not supported |
 
 Supported ECUs have a SunSpec logo on the device. DS3 inverters are tested.
 [Users report](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2#discussioncomment-19124766)
@@ -47,9 +47,7 @@ Troubleshooting).
 
 ## Before you start
 
-1. Give the ECU a fixed IP address. On an ECU-R, Modbus only works over the
-   **Ethernet cable**. Users report that an ECU-R Pro and ECU-C also work over
-   Wi-Fi.
+1. Give the ECU a fixed IP address. Connect it as shown in the table.
 2. **Enable Modbus on the ECU.** It is off by default. The setting is in the
    *EMA Manager* app, which normally needs an installer account. Without one,
    use the ECU's local access point:
@@ -79,7 +77,7 @@ Devices & services*, or add it yourself with the IP address of the ECU (port
 [![Open your Home Assistant instance and start setting up APsystems Modbus.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=apsystems_modbus)
 
 Leave the inverter addresses empty to find the inverters automatically. Enter
-the installation power (kW) if you want to set the power limit in kW, and the
+the installation power (kW) to get the most out of the power limit, and the
 lifetime energy from the EMA app (kWh) if the counter should continue from
 there. Both can also be set later under *Configure*.
 
@@ -115,11 +113,9 @@ whole percent. 100 % is no limit.
 - At 0 % an ECU-R lets each inverter still deliver about 10 to 30 W. An
   ECU-R Pro turns them fully off.
 - If the ECU loses the limit, for example after a restart, the integration
-  sends it again. This works best with the installation power entered under
-  *Configure*.
-- With the installation power entered, a second control sets the same limit
-  in kW. If an inverter then delivers clearly more than the limit allows, a
-  notice under *Settings → Repairs* asks you to check the installation power.
+  sends it again.
+- Enter the installation power under *Configure*. You can then also set the
+  limit in kW, and the integration checks that every inverter follows it.
 - If the ECU is not answering, a new limit is sent once it answers again.
 - If an inverter stays limited, set the limit to 99 % and then to 100 %. If
   that does not help, switch the ECU off for a minute.
@@ -228,7 +224,7 @@ automation:
 | Problem | What to do |
 |---|---|
 | The ECU refused the connection | Modbus is off: enable it in the EMA Manager app and assign addresses |
-| No answer from the ECU | Check the IP address and the Ethernet cable |
+| No answer from the ECU | Check the IP address and the network connection |
 | No inverter answered | Just after a restart of the ECU, try again in a few minutes. Otherwise assign addresses in the EMA Manager app or enter them manually |
 | The ECU stopped answering | Stop other Modbus clients, wait five minutes, try again |
 | The ECU is unstable and often does not answer | In your router, block internet access for the ECU's cable connection. Leave the ECU on Wi-Fi so the EMA app keeps working. In tests this made the ECU stable again |

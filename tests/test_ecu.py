@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from modbus_connection import ModbusTimeoutError
-from modbus_connection.mock import MockModbusConnection, WriteEvent
+from modbus_connection.mock import MockModbusConnection, MockModbusUnit, WriteEvent
 import pytest
 
 from custom_components.apsystems_modbus.ecu import (
@@ -179,3 +179,63 @@ async def test_write_export_limit_out_of_range(
 )
 def test_channel_count(model: str | None, expected: int) -> None:
     assert channel_count(model) == expected
+
+
+def put_text(unit: MockModbusUnit, address: int, text: str, registers: int) -> None:
+    """Write ASCII text into registers, null-padded."""
+    raw = text.encode("latin-1").ljust(2 * registers, b"\x00")
+    for index in range(registers):
+        unit.holding[address + index] = int.from_bytes(raw[2 * index : 2 * index + 2])
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "expected"),
+    [
+        (0x0200, 0, InverterEvent.UNDER_FREQUENCY),  # where APsystems puts them
+        (0, 0x0200, InverterEvent.UNDER_FREQUENCY),  # where SunSpec puts them
+        (
+            0x0080,
+            0x0200,
+            InverterEvent.OVER_TEMPERATURE | InverterEvent.UNDER_FREQUENCY,
+        ),
+        (0, 0, InverterEvent(0)),
+        (0xFFFF, 0, None),  # not implemented, never "every event"
+        (0, 0xFFFF, None),
+        (0xFFFF, 0xFFFF, None),
+    ],
+)
+async def test_events_from_either_register(
+    mock_ecu: MockModbusConnection,
+    first: int,
+    second: int,
+    expected: InverterEvent | None,
+) -> None:
+    unit = mock_ecu.for_unit(1)
+    unit.holding[40110] = first
+    unit.holding[40111] = second
+    inverter = Inverter(unit, 1)
+    await inverter.async_poll(Inverter.POLLED)
+
+    assert inverter.status.events == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("V626003", "V626003"),  # ECU-R Pro
+        ("V1169", "V1169"),  # ECU-C
+        ("V0", None),  # ECU-R: says nothing
+        ("", None),
+        (" V1.2-3\x01\x7f", "V1.2-3"),
+        ("\x05\x06", None),
+    ],
+)
+async def test_firmware_is_printable_or_none(
+    mock_ecu: MockModbusConnection, text: str, expected: str | None
+) -> None:
+    unit = mock_ecu.for_unit(1)
+    put_text(unit, 40044, text, 8)
+    inverter = Inverter(unit, 1)
+    await inverter.async_poll(Inverter.POLLED)
+
+    assert inverter.status.firmware == expected

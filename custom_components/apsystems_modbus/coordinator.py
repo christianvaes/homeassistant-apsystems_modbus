@@ -16,7 +16,7 @@ from modbus_connection.model import UpdateReport
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -32,7 +32,6 @@ from .const import (
     SETTLE_BASE,
     SETTLE_MAX,
     SETTLE_PER_INVERTER,
-    SLOW_POLL_PER_UNIT,
     VALUE_MAX_AGE,
 )
 from .ecu import REQUEST_TIMEOUT, Inverter
@@ -156,6 +155,8 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         """Verdict of ``_judge`` on the last poll; writes that can wait need it."""
         self.seconds_per_inverter: float | None = None
         """Read time per inverter in the last poll, for diagnostics."""
+        # When the current or last poll started reading.
+        self.cycle_started = dt_util.utcnow()
         self.ecu_device_id: str | None = None
         """Device registry id of the ECU, set once the device is registered."""
         self.serials: dict[int, str] = {
@@ -211,6 +212,7 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
     async def _async_read_cycle(self) -> EcuData:
         data = EcuData()
         started = monotonic()
+        self.cycle_started = dt_util.utcnow()
         # A probe of the config flow on the same link may have lowered the
         # timeout. The ECU needs the full time.
         self.lead.modbus_unit.require_timeout(REQUEST_TIMEOUT)
@@ -263,7 +265,7 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         self.seconds_per_inverter = (
             round(elapsed / len(data.available), 1) if data.available else None
         )
-        self.poll_healthy = self._judge(data, elapsed, waiting)
+        self.poll_healthy = self._judge(data, waiting)
         await self.power_limit.async_after_poll(data)
         await self.inverter_output.async_after_poll(data)
         if self.link_busy:
@@ -319,16 +321,17 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         self._stuck.discard(unit_id)
         return False
 
-    def _judge(self, data: EcuData, elapsed: float, waiting: list[int]) -> bool:
+    def _judge(self, data: EcuData, waiting: list[int]) -> bool:
         """Whether the poll so far was healthy; units silent last time do not count.
 
-        Every write goes through the lead, so it must have been read.
+        Every write goes through the lead, so it must have been read. How long
+        the poll took does not count: by day a healthy ECU-R often needs over
+        a minute, and a struggling one shows itself by not answering.
         """
         return (
             self.lead.unit_id in data.available
             and not data.ended_in_timeout
             and not any(unit not in self._stuck for unit in waiting)
-            and elapsed <= SLOW_POLL_PER_UNIT * len(data.available)
         )
 
     @asynccontextmanager
@@ -415,6 +418,8 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         if "measurements" in report.updated and self._serial_matches(unit_id, inverter):
             data.available.add(unit_id)
             self._read_at[unit_id] = now
+            if "status" in report.updated:
+                self._note_firmware(unit_id, inverter)
 
     async def _async_finish_cycle(self, data: EcuData) -> EcuData:
         """Settle the outcome of a cycle and compute what the entities show."""
@@ -499,6 +504,17 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
                 )
                 self._report_new_address(actual, moved_from, unit_id)
         return moved_from is None
+
+    def _note_firmware(self, unit_id: int, inverter: Inverter) -> None:
+        """Show the firmware the ECU reports as the version of the inverter device."""
+        if (firmware := inverter.status.firmware) is None:
+            return
+        registry = dr.async_get(self.hass)
+        device = registry.async_get_device_by_identifier(
+            (DOMAIN, self.serials[unit_id]), self.config_entry.entry_id
+        )
+        if device is not None and device.sw_version != firmware:
+            registry.async_update_device(device.id, sw_version=firmware)
 
     def _report_new_address(self, serial: str, old: int, new: int) -> None:
         """Ask the user once to reconfigure after an address change."""

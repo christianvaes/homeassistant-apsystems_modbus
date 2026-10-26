@@ -227,7 +227,7 @@ class InverterOutput:
             if not sun.is_up(self._coordinator.hass):
                 reason = "night"
             elif not self._coordinator.poll_healthy:
-                reason = "the last poll failed or was slow"
+                reason = "the last poll failed or the ECU is busy"
             if reason is not None:
                 _LOGGER.debug("Inverter output: off not sent (%s)", reason)
                 self.catch_up = True

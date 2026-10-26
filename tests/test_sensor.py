@@ -68,7 +68,7 @@ async def test_inverter_sensors(
     assert float(hass.states.get(f"{prefix}frequency").state) == pytest.approx(49.98)
     assert float(hass.states.get(f"{prefix}temperature").state) == 24.0
     assert hass.states.get(f"{prefix}status").state == "mppt"
-    assert hass.states.get(f"{prefix}event_code").state == "ok"
+    assert hass.states.get(f"{prefix}event_code").state == "OK"
     assert "state_class" not in hass.states.get(f"{prefix}energy_today").attributes
     # States carry no float32 noise: at most three decimals.
     for key in (
@@ -390,3 +390,82 @@ async def test_technical_sensors_are_diagnostic(
     assert (
         registry.async_get("sensor.inverter_703000000002_power").entity_category is None
     )
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "expected"),
+    [
+        (0x0200, 0, "Under frequency"),
+        (0x0080, 0x0200, "Over temperature, Under frequency"),
+        (0x0400, 0, "AC over voltage"),
+        (0, 0x8000, "HW test failure"),
+        (0, 0, "OK"),
+        (0xFFFF, 0, "unknown"),
+    ],
+)
+async def test_event_code_in_plain_words(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    *,
+    first: int,
+    second: int,
+    expected: str,
+) -> None:
+    unit = mock_ecu.for_unit(1)
+    unit.holding[40110] = first
+    unit.holding[40111] = second
+    await setup_entry(hass, mock_config_entry)
+
+    state = hass.states.get("sensor.inverter_704000000001_event_code")
+    assert state.state == expected
+
+
+async def test_event_code_with_every_event_stays_a_valid_state(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    unit = mock_ecu.for_unit(1)
+    unit.holding[40110] = 0x7FFF
+    unit.holding[40111] = 0x8000
+    await setup_entry(hass, mock_config_entry)
+
+    state = hass.states.get("sensor.inverter_704000000001_event_code")
+    assert state.state.startswith("Ground fault, ")
+    assert len(state.state) <= 255
+
+
+def put_firmware(mock_ecu: MockModbusConnection, unit_id: int, text: str) -> None:
+    raw = text.encode().ljust(16, b"\x00")
+    unit = mock_ecu.for_unit(unit_id)
+    for index in range(8):
+        unit.holding[40044 + index] = int.from_bytes(raw[2 * index : 2 * index + 2])
+
+
+async def test_inverter_firmware_becomes_the_device_version(
+    hass: HomeAssistant,
+    device_registry: dr.DeviceRegistry,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    put_firmware(mock_ecu, 1, "V626003")
+    put_firmware(mock_ecu, 2, "V0")
+    await setup_entry(hass, mock_config_entry)
+
+    first = device_registry.async_get_device_by_identifier(
+        (DOMAIN, "704000000001"), mock_config_entry.entry_id
+    )
+    second = device_registry.async_get_device_by_identifier(
+        (DOMAIN, "703000000002"), mock_config_entry.entry_id
+    )
+    assert first.sw_version == "V626003"
+    assert second.sw_version is None
+
+    # An update of the inverter shows at the next poll.
+    put_firmware(mock_ecu, 1, "V627000")
+    await mock_config_entry.runtime_data.async_refresh()
+    first = device_registry.async_get_device_by_identifier(
+        (DOMAIN, "704000000001"), mock_config_entry.entry_id
+    )
+    assert first.sw_version == "V627000"

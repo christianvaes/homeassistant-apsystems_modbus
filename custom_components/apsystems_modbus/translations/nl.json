@@ -4,14 +4,14 @@
     "step": {
       "user": {
         "title": "Verbinden met de ECU",
-        "description": "De ECU moet via een netwerkkabel aangesloten zijn en Modbus moet op de ECU aan staan (EMA Manager-app via het eigen wifi-netwerk van de ECU: Lokale toegang → Werkruimte → Modbus-instellingen). Laat niets anders de ECU via Modbus uitlezen, want hij raakt snel overbelast.",
+        "description": "Modbus moet op de ECU aan staan (EMA Manager-app via het eigen wifi-netwerk van de ECU: Lokale toegang → Werkruimte → Modbus-instellingen). Een ECU-R werkt alleen via zijn netwerkkabel. Laat niets anders de ECU via Modbus uitlezen, want hij raakt snel overbelast.",
         "data": {
           "host": "Host",
           "port": "Poort",
           "unit_ids": "Adressen van de omvormers"
         },
         "data_description": {
-          "host": "IP-adres van de ECU op het bekabelde netwerk.",
+          "host": "IP-adres van de ECU.",
           "port": "502, tenzij je het hebt aangepast.",
           "unit_ids": "Leeg laten om automatisch te zoeken, of de adressen uit de EMA Manager-app invullen, bijvoorbeeld 1-8 of 1, 2, 5."
         }
@@ -25,7 +25,7 @@
           "unit_ids": "Adressen van de omvormers"
         },
         "data_description": {
-          "host": "IP-adres van de ECU op het bekabelde netwerk.",
+          "host": "IP-adres van de ECU.",
           "port": "502, tenzij je het hebt aangepast.",
           "unit_ids": "Leeg laten om automatisch te zoeken, of de adressen uit de EMA Manager-app invullen, bijvoorbeeld 1-8 of 1, 2, 5."
         }
@@ -42,7 +42,7 @@
           "lifetime_energy": "Totale opbrengst (optioneel)"
         },
         "data_description": {
-          "installation_power": "Vermogen van alle omvormers samen, bijvoorbeeld {count} × 0,73 = {ds3_l_kw} kW voor DS3-L of {count} × 0,88 = {ds3_kw} kW voor DS3. Leeg laten kan, dan stel je de limiet alleen in procenten in.",
+          "installation_power": "Vermogen van alle omvormers samen, bijvoorbeeld {count} × 0,73 = {ds3_l_kw} kW voor DS3-L of {count} × 0,88 = {ds3_kw} kW voor DS3. Hiermee controleert de integratie of elke omvormer de limiet volgt, en komt er een regelaar in kW bij.",
           "lifetime_energy": "De totale opbrengst uit de EMA-app, in kWh. De lifetime-teller gaat vanaf hier verder. Leeg laten om bij 0 te beginnen."
         }
       }
@@ -51,7 +51,7 @@
       "scan": "Zoeken naar omvormers. Dit duurt maximaal een minuut."
     },
     "error": {
-      "cannot_connect": "Geen antwoord van de ECU. Controleer het IP-adres en sluit de ECU aan via een netwerkkabel. Modbus TCP werkt niet via wifi.",
+      "cannot_connect": "Geen antwoord van de ECU. Controleer het IP-adres en de netwerkverbinding.",
       "modbus_disabled": "De ECU weigerde de verbinding. Modbus staat standaard uit: druk op de AP-knop van de ECU, verbind met zijn wifi-netwerk, open de EMA Manager-app via Lokale toegang en zet Modbus aan onder Werkruimte → Modbus-instellingen, met een adres per omvormer. Probeer het daarna opnieuw.",
       "not_apsystems": "Het apparaat op dit adres is geen APsystems ECU.",
       "no_inverters": "Geen enkele omvormer antwoordde. Is de ECU net gestart, probeer het dan over een paar minuten opnieuw. Geef anders elke omvormer een adres in de Modbus-instellingen van de EMA Manager-app (Lokale toegang), of vul de adressen hier in.",
@@ -83,7 +83,7 @@
         "data_description": {
           "lifetime_energy": "Alleen aanpassen om de teller te corrigeren. Hij telt verder vanaf de waarde die je invult. Het Energy-dashboard toont de wijziging één keer als opbrengst in dat uur. Dat uur kun je aanpassen onder Instellingen → Hulpmiddelen → Statistieken.",
           "peak_power": "Hoogste totaalvermogen tot nu toe. Zet op 0 om opnieuw te beginnen.",
-          "installation_power": "Vermogen van alle omvormers samen, bijvoorbeeld {count} × 0,73 = {ds3_l_kw} kW voor DS3-L of {count} × 0,88 = {ds3_kw} kW voor DS3. Leeg laten kan, dan stel je de limiet alleen in procenten in."
+          "installation_power": "Vermogen van alle omvormers samen, bijvoorbeeld {count} × 0,73 = {ds3_l_kw} kW voor DS3-L of {count} × 0,88 = {ds3_kw} kW voor DS3. Hiermee controleert de integratie of elke omvormer de limiet volgt, en komt er een regelaar in kW bij."
         }
       }
     },
@@ -118,7 +118,7 @@
           "off": "Uit",
           "sleeping": "Slaapstand",
           "starting": "Opstarten",
-          "mppt": "MPPT",
+          "mppt": "Produceert",
           "throttled": "Begrensd",
           "shutting_down": "Afsluiten",
           "fault": "Storing",
@@ -138,7 +138,7 @@
     },
     "ecu_not_answering": {
       "title": "De APsystems ECU antwoordt niet",
-      "description": "De ECU antwoordt al twee uur niet. Controleer of hij stroom heeft en met een netwerkkabel is aangesloten, of het IP-adres nog klopt (Herconfigureer in het menu van deze integratie) en of Modbus nog aan staat in de EMA Manager-app. Deze melding verdwijnt zodra de ECU weer antwoordt."
+      "description": "De ECU antwoordt al twee uur niet. Controleer of hij stroom heeft en met het netwerk verbonden is, of het IP-adres nog klopt (Herconfigureer in het menu van deze integratie) en of Modbus nog aan staat in de EMA Manager-app. Deze melding verdwijnt zodra de ECU weer antwoordt."
     }
   }
 }

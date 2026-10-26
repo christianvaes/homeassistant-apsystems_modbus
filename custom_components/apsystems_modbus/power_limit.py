@@ -28,14 +28,18 @@ only the last one partly shows, as a failed poll. So:
 * The ECU sometimes falls back to its factory table (30 % with the flag as a
   raw 1; written values read back as ASCII). The inverters do not follow it,
   so writing the choice back only repairs the table and plans no refreshes.
-* The choice is sent again ("refreshed") 15 and 75 minutes after it was set,
-  once after Home Assistant starts, and, below 100, after the connection to
-  the ECU broke, which is how a restart of the ECU shows. The ECU only
-  passes a changed percentage on to the inverters, so a refresh writes one
-  percent less (or more, at 0), waits at least one ECU round and then writes
-  the chosen value again. The in-between value is not shown.
+* The choice is sent again ("refreshed") after the next ECU round and an
+  hour after that, once after Home Assistant starts, and, below 100, after
+  the connection to the ECU broke, which is how a restart of the ECU shows.
+  The ECU sometimes passes a change to only some inverters, and only passes
+  a changed percentage on, so a refresh writes one percent less (or more, at
+  0), waits at least one ECU round and then writes the chosen value again.
+  The in-between value is not shown.
 * With the installation power known, an inverter that delivers clearly more
-  than the limit allows has missed it, and the limit is refreshed at once.
+  than the limit allows has missed it, and the limit is refreshed at once:
+  the first time already after one ECU round, because an inverter the ECU
+  skipped stays at full power. After a refresh it waits longer, because an
+  inverter that did get it can take a quarter of an hour to come down.
   Below 100 a missed limit then shows as soon as it matters, so the timed
   refreshes above are left out: they would only add writes to an ECU that
   is easily overloaded.
@@ -70,7 +74,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_INSTALLATION_POWER, DOMAIN, MAX_INVERTER_POWER
+from .const import CONF_INSTALLATION_POWER, DOMAIN, MAX_INVERTER_POWER, ROUND_PERIOD
 from .ecu import (
     EXPORT_LIMIT_ADDRESS,
     EXPORT_LIMIT_ENABLED_ADDRESS,
@@ -96,7 +100,8 @@ REWRITE_INTERVAL = timedelta(minutes=10)
 MAX_REWRITES = 3
 """Corrective writes for one choice before waiting for the user instead."""
 REFRESH_DELAY = timedelta(minutes=15)
-"""Time from a change to its first refresh; a change can take ~12 min to arrive."""
+"""Time after a refresh before an inverter above the limit counts as missed;
+an inverter that got the limit can take this long to come down."""
 REFRESH_REPEAT = timedelta(hours=1)
 """Time between the refreshes that follow one change."""
 REFRESHES_PER_CHANGE = 2
@@ -149,6 +154,15 @@ class _Refresh:
     step_written: datetime | None = None
     """When the in-between value of the refresh under way was written."""
     last_started: datetime | None = None
+
+
+def next_round(moment: datetime) -> datetime:
+    """Return when the first ECU round after ``moment`` starts.
+
+    The ECU starts its rounds on the clock, every ``ROUND_PERIOD`` seconds.
+    """
+    rounds = math.floor(moment.timestamp() / ROUND_PERIOD) + 1
+    return dt_util.utc_from_timestamp(rounds * ROUND_PERIOD)
 
 
 def effective_limit(measurements: Measurements) -> int | None:
@@ -210,9 +224,16 @@ class PowerLimit:
         self._refresh = _Refresh()
         self._last_written: datetime | None = None
         """When the chosen value last reached the ECU."""
+        self._changed_at: datetime | None = None
+        """When the user last chose a new value."""
+        self._quick = True
+        """Whether the last choice stood alone, so it is checked after one round.
+
+        Changes within ``REFRESH_DELAY`` of each other (an automation that
+        steers) wait longer, or the refreshes would double the writes.
+        """
         self._written: dict[int, float | bool] = {}
         """Per register the value written since the last read of ``control``."""
-        self._over_last_poll: set[int] = set()
         self._ecu_was_silent = False
         self._limit_read = False
         """Whether the limit registers were read through ``control`` once."""
@@ -304,6 +325,10 @@ class PowerLimit:
             if self.desired != percent:
                 return  # A later call took over.
             now = dt_util.utcnow()
+            self._quick = self._changed_at is None or (
+                now - self._changed_at >= REFRESH_DELAY
+            )
+            self._changed_at = now
             # A new choice gets fresh chances before the user is told.
             self._reset_overshoot()
             self.rewrites = 0
@@ -329,8 +354,8 @@ class PowerLimit:
                 )
                 return
             self.pending = False
-            self._last_written = now
-            self._plan_refreshes(now)
+            self._last_written = dt_util.utcnow()
+            self._plan_refreshes_for_choice(self._last_written)
 
     async def _async_write(self, percent: int, *, show: bool = True) -> None:
         """Write the percentage, then the flag; a half write never limits more.
@@ -359,8 +384,6 @@ class PowerLimit:
             measurements.export_limit_enabled,
             self.control.async_set_export_limit_enabled,
         )
-        # What the inverters delivered before this write says nothing any more.
-        self._over_last_poll = set()
         if show:
             self._adopt(percent)
 
@@ -448,6 +471,7 @@ class PowerLimit:
         self, data: EcuData, reported: int, now: datetime
     ) -> None:
         """Write whatever is needed to keep the ECU on the chosen limit."""
+        self._reset_overshoot_at_night(data)
         if self._lock.locked():
             # A change of the user is being written. This poll read the value
             # before it, so the next poll judges again.
@@ -478,6 +502,10 @@ class PowerLimit:
             if not self._rewrote_recently(now):
                 await self._async_rewrite(reported, now)
                 return
+        if reported != self.desired:
+            # The ECU does not hold the choice, so sending it on to the
+            # inverters cannot help; the rewrite above deals with it.
+            return
 
         self._check_overshoot(data, now)
 
@@ -498,37 +526,51 @@ class PowerLimit:
     def _check_overshoot(self, data: EcuData, now: datetime) -> None:
         """Refresh at once when an inverter clearly delivers above the limit.
 
-        Only an excess is a sure sign: delivering less can be a cloud. Two
-        polls in a row must show it, and the last write must be old enough to
-        have arrived. The count of such refreshes starts over with a new
-        choice, a restart and each night, so a wrong installation power costs
-        at most two refreshes a day, not one every time the sun comes out.
+        Only an excess is a sure sign: delivering less can be a cloud. The
+        count of such refreshes starts over with a new choice, a restart and
+        each night, so a wrong installation power costs at most two refreshes
+        a day, not one every time the sun comes out.
         """
-        inverters = self._coordinator.inverters
-        if data.available and not any(
-            inverters[unit].measurements.is_online for unit in data.available
-        ):
-            # An ECU that restarted overnight clears the limit on the
-            # inverters without showing it, so each day gets fresh chances.
-            self.overshoot_refreshes = 0
         if self.pending:
             return  # The chosen value has not reached the ECU yet.
         over = self._overshooting(data)
-        confirmed = over & self._over_last_poll
-        self._over_last_poll = over
         # Without a write since the start, the last write counts as long ago.
         written = self._last_written
-        if not confirmed or (written is not None and now - written < REFRESH_DELAY):
+        started = self._coordinator.cycle_started
+        if not over or (written is not None and started < self._settled_after(written)):
             return
         due = self._refresh.next_at
         if due is not None and now >= due:
             return  # The planned refresh comes now anyway.
         if self.overshoot_refreshes >= MAX_OVERSHOOT_REFRESHES:
-            self._report_overshoot(confirmed)
+            self._report_overshoot(over)
             return
         self.overshoot_refreshes += 1
-        _LOGGER.debug("Units %s deliver above the limit; refreshing", confirmed)
+        _LOGGER.debug("Units %s deliver above the limit; refreshing", over)
         self._plan_refresh_by(now)
+
+    def _settled_after(self, written: datetime) -> datetime:
+        """Return from when a poll shows whether a write reached everyone.
+
+        That is after the next ECU round has passed all inverters, or, after
+        a refresh or quick changes, once a slow inverter has come down.
+        """
+        if self.overshoot_refreshes == 0 and self._quick:
+            settle = timedelta(seconds=self._coordinator.settle)
+            return next_round(written) + settle
+        return written + REFRESH_DELAY
+
+    def _reset_overshoot_at_night(self, data: EcuData) -> None:
+        """Give each day fresh chances.
+
+        An ECU that restarted overnight clears the limit on the inverters
+        without showing it.
+        """
+        inverters = self._coordinator.inverters
+        if data.available and not any(
+            inverters[unit].measurements.is_online for unit in data.available
+        ):
+            self.overshoot_refreshes = 0
 
     def _overshooting(self, data: EcuData) -> set[int]:
         """Return the units delivering clearly more than the chosen limit."""
@@ -599,10 +641,10 @@ class PowerLimit:
         self,
         now: datetime,
         *,
-        delay: timedelta = REFRESH_DELAY,
+        delay: timedelta | None = None,
         count: int = REFRESHES_PER_CHANGE,
     ) -> None:
-        """Plan ``count`` refreshes, the first one after ``delay``.
+        """Plan ``count`` refreshes, the first after ``delay`` or the next ECU round.
 
         Any refresh under way is dropped: the value just written takes over.
         Nothing is planned while the power shows a missed limit.
@@ -612,8 +654,12 @@ class PowerLimit:
             self._refresh.next_at = None
             self._refresh.left = 0
             return
-        self._refresh.next_at = now + delay
+        self._refresh.next_at = next_round(now) if delay is None else now + delay
         self._refresh.left = count
+
+    def _plan_refreshes_for_choice(self, written: datetime) -> None:
+        """Plan the refreshes after a choice reached the ECU."""
+        self._plan_refreshes(written, delay=None if self._quick else REFRESH_DELAY)
 
     def _plan_refresh_by(self, due: datetime) -> None:
         """Make sure a refresh comes no later than ``due``."""
@@ -655,9 +701,9 @@ class PowerLimit:
             else:
                 written = True
                 self.pending = False
-                self._last_written = now
+                self._last_written = dt_util.utcnow()
                 if delivers_choice or not factory:
-                    self._plan_refreshes(now)
+                    self._plan_refreshes_for_choice(self._last_written)
             self.rewrites += 1
         if self.rewrites >= MAX_REWRITES:
             _LOGGER.warning(
@@ -722,7 +768,7 @@ class PowerLimit:
                 )
                 return
             refresh.step_written = None
-            self._last_written = now
+            self._last_written = dt_util.utcnow()
             refresh.left -= 1
             if refresh.left > 0 and refresh.last_started is not None:
                 refresh.next_at = refresh.last_started + REFRESH_REPEAT

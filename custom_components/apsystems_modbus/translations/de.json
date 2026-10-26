@@ -4,14 +4,14 @@
     "step": {
       "user": {
         "title": "Mit der ECU verbinden",
-        "description": "Die ECU muss per Netzwerkkabel verbunden sein und Modbus muss auf der ECU aktiviert sein (App EMA Manager über den Access Point der ECU: Local Access → Workspace → Modbus settings). Nichts anderes sollte die ECU über Modbus abfragen, weil sie schnell überlastet ist.",
+        "description": "Modbus muss auf der ECU aktiviert sein (App EMA Manager über den Access Point der ECU: Local Access → Workspace → Modbus settings). Eine ECU-R funktioniert nur über ihr Netzwerkkabel. Nichts anderes sollte die ECU über Modbus abfragen, weil sie schnell überlastet ist.",
         "data": {
           "host": "Host",
           "port": "Port",
           "unit_ids": "Adressen der Wechselrichter"
         },
         "data_description": {
-          "host": "IP-Adresse der ECU im kabelgebundenen Netzwerk.",
+          "host": "IP-Adresse der ECU.",
           "port": "502, außer du hast ihn geändert.",
           "unit_ids": "Für die automatische Suche leer lassen oder die Adressen aus der App EMA Manager eingeben, zum Beispiel 1-8 oder 1, 2, 5."
         }
@@ -25,7 +25,7 @@
           "unit_ids": "Adressen der Wechselrichter"
         },
         "data_description": {
-          "host": "IP-Adresse der ECU im kabelgebundenen Netzwerk.",
+          "host": "IP-Adresse der ECU.",
           "port": "502, außer du hast ihn geändert.",
           "unit_ids": "Für die automatische Suche leer lassen oder die Adressen aus der App EMA Manager eingeben, zum Beispiel 1-8 oder 1, 2, 5."
         }
@@ -42,7 +42,7 @@
           "lifetime_energy": "Gesamtenergie (optional)"
         },
         "data_description": {
-          "installation_power": "Leistung aller Wechselrichter zusammen, zum Beispiel {count} × 0,73 = {ds3_l_kw} kW für DS3-L oder {count} × 0,88 = {ds3_kw} kW für DS3. Leer lassen, um die Begrenzung nur in Prozent einzustellen.",
+          "installation_power": "Leistung aller Wechselrichter zusammen, zum Beispiel {count} × 0,73 = {ds3_l_kw} kW für DS3-L oder {count} × 0,88 = {ds3_kw} kW für DS3. Damit prüft die Integration, ob jeder Wechselrichter der Begrenzung folgt, und es kommt eine Einstellung in kW hinzu.",
           "lifetime_energy": "Gesamtenergie aus der EMA-App, in kWh. Der Zähler läuft ab diesem Wert weiter. Leer lassen, um bei 0 zu beginnen."
         }
       }
@@ -51,7 +51,7 @@
       "scan": "Suche nach Wechselrichtern. Das kann bis zu einer Minute dauern."
     },
     "error": {
-      "cannot_connect": "Keine Antwort von der ECU. Prüfe die IP-Adresse und verbinde die ECU per Netzwerkkabel. Modbus TCP funktioniert nicht über WLAN.",
+      "cannot_connect": "Keine Antwort von der ECU. Prüfe die IP-Adresse und die Netzwerkverbindung.",
       "modbus_disabled": "Die ECU hat die Verbindung abgelehnt. Modbus ist ab Werk deaktiviert. Drücke die AP-Taste an der ECU, verbinde dich mit ihrem WLAN, öffne die App EMA Manager mit Local Access und aktiviere Modbus unter Workspace → Modbus settings mit einer Adresse für jeden Wechselrichter. Versuche es dann erneut.",
       "not_apsystems": "Das Gerät unter dieser Adresse ist keine APsystems ECU.",
       "no_inverters": "Kein Wechselrichter hat geantwortet. Wenn die ECU gerade gestartet ist, versuche es in ein paar Minuten erneut. Gib sonst jedem Wechselrichter eine Adresse in der App EMA Manager (Local Access → Workspace → Modbus settings) oder gib die Adressen hier ein.",
@@ -83,7 +83,7 @@
         "data_description": {
           "lifetime_energy": "Nur ändern, um den Zähler zu korrigieren. Er zählt ab dem eingegebenen Wert weiter. Das Energie-Dashboard zeigt die Änderung einmalig als Erzeugung in der Stunde der Änderung. Diese Stunde kannst du unter Einstellungen → Werkzeuge → Statistik anpassen.",
           "peak_power": "Höchste Gesamtleistung bisher. Auf 0 setzen, um neu zu beginnen.",
-          "installation_power": "Leistung aller Wechselrichter zusammen, zum Beispiel {count} × 0,73 = {ds3_l_kw} kW für DS3-L oder {count} × 0,88 = {ds3_kw} kW für DS3. Leer lassen, um die Begrenzung nur in Prozent einzustellen."
+          "installation_power": "Leistung aller Wechselrichter zusammen, zum Beispiel {count} × 0,73 = {ds3_l_kw} kW für DS3-L oder {count} × 0,88 = {ds3_kw} kW für DS3. Damit prüft die Integration, ob jeder Wechselrichter der Begrenzung folgt, und es kommt eine Einstellung in kW hinzu."
         }
       }
     },
@@ -118,7 +118,7 @@
           "off": "Aus",
           "sleeping": "Ruhezustand",
           "starting": "Startet",
-          "mppt": "MPPT",
+          "mppt": "Produziert",
           "throttled": "Begrenzt",
           "shutting_down": "Fährt herunter",
           "fault": "Störung",
@@ -138,7 +138,7 @@
     },
     "ecu_not_answering": {
       "title": "Die APsystems ECU antwortet nicht",
-      "description": "Die ECU antwortet seit zwei Stunden nicht. Prüfe, ob sie Strom hat und per Netzwerkkabel verbunden ist, ob ihre IP-Adresse noch stimmt (Neu konfigurieren im Menü dieser Integration) und ob Modbus in der App EMA Manager noch eingeschaltet ist. Dieser Hinweis verschwindet, sobald die ECU wieder antwortet."
+      "description": "Die ECU antwortet seit zwei Stunden nicht. Prüfe, ob sie Strom hat und mit dem Netzwerk verbunden ist, ob ihre IP-Adresse noch stimmt (Neu konfigurieren im Menü dieser Integration) und ob Modbus in der App EMA Manager noch eingeschaltet ist. Dieser Hinweis verschwindet, sobald die ECU wieder antwortet."
     }
   }
 }

@@ -14,6 +14,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
+    MAX_LENGTH_STATE_STATE,
     EntityCategory,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
@@ -112,15 +113,29 @@ def _dc_reader(quantity: str, channel: int) -> Callable[[Inverter], float | None
     return read
 
 
+ACRONYMS = frozenset({"AC", "DC", "HW"})
+
+
+def _plain(name: str) -> str:
+    """Turn an event name such as AC_OVER_VOLTAGE into "AC over voltage"."""
+    text = " ".join(
+        word if word in ACRONYMS else word.lower() for word in name.split("_")
+    )
+    return text[:1].upper() + text[1:]
+
+
 def _event_state(inverter: Inverter) -> str | None:
+    """Name the active events in plain words, for example "Under frequency"."""
     events = inverter.status.events
     if events is None:
         return None
     if not events:
-        return "ok"
-    return ", ".join(
-        flag.name.lower() for flag in type(events) if flag in events and flag.name
+        return "OK"
+    text = ", ".join(
+        _plain(flag.name) for flag in type(events) if flag in events and flag.name
     )
+    # Home Assistant refuses a state longer than this.
+    return text[:MAX_LENGTH_STATE_STATE]
 
 
 INVERTER_SENSORS: tuple[InverterSensorDescription, ...] = (

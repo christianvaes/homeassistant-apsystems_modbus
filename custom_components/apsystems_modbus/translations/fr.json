@@ -4,14 +4,14 @@
     "step": {
       "user": {
         "title": "Se connecter à l'ECU",
-        "description": "L'ECU doit être connectée par un câble Ethernet et Modbus doit être activé sur l'ECU (application EMA Manager via le point d'accès de l'ECU : Local Access → Workspace → Modbus settings). Aucun autre client Modbus ne doit interroger l'ECU, car elle se surcharge facilement.",
+        "description": "Modbus doit être activé sur l'ECU (application EMA Manager via le point d'accès de l'ECU : Local Access → Workspace → Modbus settings). Une ECU-R ne fonctionne que par son câble Ethernet. Aucun autre client Modbus ne doit interroger l'ECU, car elle se surcharge facilement.",
         "data": {
           "host": "Hôte",
           "port": "Port",
           "unit_ids": "Adresses des onduleurs"
         },
         "data_description": {
-          "host": "Adresse IP de l'ECU sur le réseau filaire.",
+          "host": "Adresse IP de l'ECU.",
           "port": "502, sauf si vous l'avez modifié.",
           "unit_ids": "Laissez vide pour une recherche automatique, ou saisissez les adresses définies dans l'application EMA Manager, par exemple 1-8 ou 1, 2, 5."
         }
@@ -25,7 +25,7 @@
           "unit_ids": "Adresses des onduleurs"
         },
         "data_description": {
-          "host": "Adresse IP de l'ECU sur le réseau filaire.",
+          "host": "Adresse IP de l'ECU.",
           "port": "502, sauf si vous l'avez modifié.",
           "unit_ids": "Laissez vide pour une recherche automatique, ou saisissez les adresses définies dans l'application EMA Manager, par exemple 1-8 ou 1, 2, 5."
         }
@@ -42,7 +42,7 @@
           "lifetime_energy": "Énergie totale (facultatif)"
         },
         "data_description": {
-          "installation_power": "Puissance de tous les onduleurs ensemble, par exemple {count} × 0,73 = {ds3_l_kw} kW pour des DS3-L ou {count} × 0,88 = {ds3_kw} kW pour des DS3. Laissez vide pour régler la limite uniquement en pourcentage.",
+          "installation_power": "Puissance de tous les onduleurs ensemble, par exemple {count} × 0,73 = {ds3_l_kw} kW pour des DS3-L ou {count} × 0,88 = {ds3_kw} kW pour des DS3. Permet à l'intégration de vérifier que chaque onduleur suit la limite, et ajoute un réglage en kW.",
           "lifetime_energy": "Énergie totale indiquée dans l'application EMA, en kWh. Le compteur continue à partir de cette valeur. Laissez vide pour commencer à 0."
         }
       }
@@ -51,7 +51,7 @@
       "scan": "Recherche des onduleurs. Cela peut prendre jusqu'à une minute."
     },
     "error": {
-      "cannot_connect": "Aucune réponse de l'ECU. Vérifiez l'adresse IP et connectez l'ECU par câble Ethernet. Modbus TCP ne fonctionne pas en Wi-Fi.",
+      "cannot_connect": "Aucune réponse de l'ECU. Vérifiez l'adresse IP et la connexion réseau.",
       "modbus_disabled": "L'ECU a refusé la connexion. Modbus est désactivé par défaut. Appuyez sur le bouton AP de l'ECU, connectez-vous à son Wi-Fi, ouvrez l'application EMA Manager avec Local Access et activez Modbus dans Workspace → Modbus settings avec une adresse pour chaque onduleur. Réessayez ensuite.",
       "not_apsystems": "L'appareil à cette adresse n'est pas une ECU APsystems.",
       "no_inverters": "Aucun onduleur n'a répondu. Si l'ECU vient de démarrer, réessayez dans quelques minutes. Sinon, attribuez une adresse à chaque onduleur dans l'application EMA Manager (Local Access → Workspace → Modbus settings), ou saisissez les adresses ici.",
@@ -83,7 +83,7 @@
         "data_description": {
           "lifetime_energy": "À modifier uniquement pour corriger le compteur. Il continue à partir de la valeur saisie. Le tableau de bord Énergie affiche la modification une seule fois comme production de l'heure de la modification. Vous pouvez ajuster cette heure sous Paramètres → Outils → Statistiques.",
           "peak_power": "Puissance totale la plus élevée jusqu'à présent. Saisissez 0 pour recommencer.",
-          "installation_power": "Puissance de tous les onduleurs ensemble, par exemple {count} × 0,73 = {ds3_l_kw} kW pour des DS3-L ou {count} × 0,88 = {ds3_kw} kW pour des DS3. Laissez vide pour régler la limite uniquement en pourcentage."
+          "installation_power": "Puissance de tous les onduleurs ensemble, par exemple {count} × 0,73 = {ds3_l_kw} kW pour des DS3-L ou {count} × 0,88 = {ds3_kw} kW pour des DS3. Permet à l'intégration de vérifier que chaque onduleur suit la limite, et ajoute un réglage en kW."
         }
       }
     },
@@ -118,7 +118,7 @@
           "off": "Arrêté",
           "sleeping": "En sommeil",
           "starting": "Démarrage",
-          "mppt": "MPPT",
+          "mppt": "En production",
           "throttled": "Limité",
           "shutting_down": "Arrêt en cours",
           "fault": "Défaut",
@@ -138,7 +138,7 @@
     },
     "ecu_not_answering": {
       "title": "L'ECU APsystems ne répond pas",
-      "description": "L'ECU ne répond plus depuis deux heures. Vérifiez qu'elle est alimentée et branchée avec un câble réseau, que son adresse IP est toujours correcte (Reconfigurer dans le menu de cette intégration) et que Modbus est toujours activé dans l'application EMA Manager. Ce message disparaît dès que l'ECU répond à nouveau."
+      "description": "L'ECU ne répond plus depuis deux heures. Vérifiez qu'elle est alimentée et connectée au réseau, que son adresse IP est toujours correcte (Reconfigurer dans le menu de cette intégration) et que Modbus est toujours activé dans l'application EMA Manager. Ce message disparaît dès que l'ECU répond à nouveau."
     }
   }
 }

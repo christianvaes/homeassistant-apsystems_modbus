@@ -528,7 +528,7 @@ async def test_off_inverters_reading_no_real_power_need_no_write(
     assert writes == []
 
 
-async def test_power_after_a_slow_poll_waits_for_the_clock(
+async def test_power_after_a_slow_but_complete_poll_is_turned_off(
     hass: HomeAssistant,
     mock_ecu: MockModbusConnection,
     mock_config_entry: MockConfigEntry,
@@ -537,11 +537,16 @@ async def test_power_after_a_slow_poll_waits_for_the_clock(
     coordinator = await setup_entry(hass, mock_config_entry, freezer)
     writes = await off_and_quiet(hass, mock_ecu)
 
+    # Each read seems to take a minute: an ECU-R by day, slow but answering.
+    clock = itertools.count(step=60.0)
     set_power(mock_ecu, {2: 26.0})
-    with patch("custom_components.apsystems_modbus.coordinator.SLOW_POLL_PER_UNIT", -1):
+    with patch(
+        "custom_components.apsystems_modbus.coordinator.monotonic",
+        side_effect=lambda: next(clock),
+    ):
         await poll(hass, coordinator)
-    assert not coordinator.poll_healthy
-    assert writes == []
+    assert coordinator.poll_healthy
+    assert writes == [0]
 
 
 async def test_power_at_night_writes_nothing(
@@ -676,27 +681,6 @@ async def test_health_of_the_last_poll_holds_during_a_poll(
     with patch.object(coordinator.inverters[1], "async_poll", first):
         await poll(hass, coordinator)
     assert seen[0] is True
-
-
-async def test_time_allowed_grows_with_the_inverters_read(
-    hass: HomeAssistant,
-    mock_ecu: MockModbusConnection,
-    mock_config_entry: MockConfigEntry,
-    freezer: FrozenDateTimeFactory,
-) -> None:
-    coordinator = await setup_entry(hass, mock_config_entry, freezer)
-    clock = "custom_components.apsystems_modbus.coordinator.monotonic"
-
-    # Two inverters may take 10 s together.
-    ticks = itertools.count(0, 2)
-    with patch(clock, lambda: next(ticks)):
-        await poll(hass, coordinator)
-    assert coordinator.poll_healthy
-
-    ticks = itertools.count(0, 10)
-    with patch(clock, lambda: next(ticks)):
-        await poll(hass, coordinator)
-    assert not coordinator.poll_healthy
 
 
 async def test_unanswered_write_after_the_reads_makes_the_poll_unhealthy(
