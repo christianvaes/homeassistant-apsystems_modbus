@@ -262,7 +262,3 @@ If this integration is useful to you:
 
 - **Star this repository** on GitHub
 - [Buy me a coffee](https://www.paypal.com/donate/?business=FAQ9J5JDQY7NW&no_recurring=1&currency_code=EUR)
-
-## License
-
-Apache-2.0.
