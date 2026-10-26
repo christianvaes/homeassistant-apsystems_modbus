@@ -102,6 +102,8 @@ MAX_REWRITES = 3
 REFRESH_DELAY = timedelta(minutes=15)
 """Time after a refresh before an inverter above the limit counts as missed;
 an inverter that got the limit can take this long to come down."""
+POLL_EARLY = timedelta(seconds=5)
+"""Home Assistant may start a poll up to a second before its planned moment."""
 REFRESH_REPEAT = timedelta(hours=1)
 """Time between the refreshes that follow one change."""
 REFRESHES_PER_CHANGE = 2
@@ -556,7 +558,7 @@ class PowerLimit:
         a refresh or quick changes, once a slow inverter has come down.
         """
         if self.overshoot_refreshes == 0 and self._quick:
-            settle = timedelta(seconds=self._coordinator.settle)
+            settle = timedelta(seconds=self._coordinator.settle) - POLL_EARLY
             return next_round(written) + settle
         return written + REFRESH_DELAY
 

@@ -1803,12 +1803,13 @@ async def test_no_overshoot_check_before_the_next_round(
     # Until the next ECU round has reached every inverter, the new limit is
     # still on its way.
     settle = timedelta(seconds=coordinator.settle)
-    freezer.tick(to_next_round() + settle - timedelta(seconds=1))
+    freezer.tick(to_next_round() + settle - timedelta(seconds=6))
     await coordinator.async_refresh()
     assert writes == []
 
-    # After that round an inverter above the limit has missed it.
-    freezer.tick(timedelta(seconds=1))
+    # After that round an inverter above the limit has missed it. Home
+    # Assistant may start the poll a moment early.
+    freezer.tick(timedelta(seconds=5))
     await coordinator.async_refresh()
     assert writes == [(EXPORT_LIMIT_ADDRESS, 10)]
 

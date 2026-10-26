@@ -283,21 +283,30 @@ async def test_unanswered_write_keeps_off_and_frees_the_link_later(
     assert writes == [0]
 
 
-async def test_failed_on_only_warns(
+async def test_failed_on_is_sent_again_after_a_healthy_poll(
     hass: HomeAssistant,
     mock_ecu: MockModbusConnection,
     mock_config_entry: MockConfigEntry,
     freezer: FrozenDateTimeFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    await setup_entry(hass, mock_config_entry, freezer)
+    coordinator = await setup_entry(hass, mock_config_entry, freezer)
     await switch(hass, SERVICE_TURN_OFF)
-    mock_ecu.for_unit(1).fail_write(GRID_CONNECTION_ADDRESS, ModbusTimeoutError())
+    unit = mock_ecu.for_unit(1)
+    unit.fail_write(GRID_CONNECTION_ADDRESS, ModbusTimeoutError())
 
     await switch(hass, SERVICE_TURN_ON)
-
     assert hass.states.get(ENTITY).state == STATE_ON
     assert "Could not send inverter output on" in caplog.text
+
+    unit.fail_write(GRID_CONNECTION_ADDRESS, None)
+    writes = conn_writes(mock_ecu)
+    for _ in range(2):
+        freezer.tick(timedelta(minutes=5))
+        await coordinator.async_refresh()
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert writes == [1]
 
 
 async def test_switch_never_touches_the_power_limit(

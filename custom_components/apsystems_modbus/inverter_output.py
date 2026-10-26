@@ -10,7 +10,8 @@ Measured on an ECU-R (firmware 1.3.23) with DS3 inverters:
   0 is written on every fifth minute.
 * The revert time in 40187 makes no difference and is never written.
 * This ECU needs no 1 to turn them on again. Other ECUs keep 0 until 1 is
-  written, so turning the output on writes 1 once.
+  written, so turning the output on writes 1, again after the next healthy
+  poll if it failed.
 
 * Now and then one inverter starts anyway at a round. The poll right after
   that round shows it delivering, so 0 is written again at once instead of
@@ -93,7 +94,7 @@ class InverterOutput:
         self.last_result: str | None = None
         """How the last write ended: "ok" or the error type."""
         self.catch_up = False
-        """An off write is due right after the next healthy poll."""
+        """The choice is sent right after the next healthy poll."""
         self._lock = asyncio.Lock()
         self._unsub_clock: CALLBACK_TYPE | None = None
 
@@ -155,23 +156,30 @@ class InverterOutput:
             self.catch_up = False
 
     async def _async_send_on(self) -> None:
-        """Write 1 once; this ECU turns them on by itself if it fails."""
+        """Write 1; if that fails, again after the next healthy poll."""
         async with self._lock:
             if not self.enabled:
                 return  # Turned off again in the meantime.
             try:
                 await self._async_write(connected=True)
             except ModbusError as err:
+                self.catch_up = True
                 _LOGGER.warning(
-                    "Could not send inverter output on (%s). An ECU-R turns the "
-                    "inverters on by itself at its next round",
+                    "Could not send inverter output on (%s); it is sent again "
+                    "once the ECU answers normally",
                     type(err).__name__,
                 )
+                return
+            self.catch_up = False
 
     async def async_after_poll(self, data: EcuData) -> None:
-        """Send off after a healthy poll if it is due or an inverter delivers."""
+        """Send a choice that did not arrive, or off again if an inverter delivers."""
         healthy = self._coordinator.poll_healthy
-        if self.enabled or not healthy or not sun.is_up(self._coordinator.hass):
+        if self.enabled:
+            if self.catch_up and healthy:
+                await self._async_send_on()
+            return
+        if not healthy or not sun.is_up(self._coordinator.hass):
             return
         if not self.catch_up:
             if not (delivering := self._delivering(data)):
