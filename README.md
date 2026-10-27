@@ -38,10 +38,15 @@ Unofficial, not affiliated with APsystems. Use at your own risk.
 | ECU-C | 215 | C1.1.3 | Ethernet or Wi-Fi | Works, [reported by a user](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2#discussioncomment-19124766) |
 | ECU-B | 2163 | not supported by APsystems | – | Not supported |
 
-Supported ECUs have a SunSpec logo on the device. DS3 inverters are tested.
-[Users report](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2#discussioncomment-19124766)
-that QS1 and YC600 work too. Other models should work. For the EZ1, use the
-core `apsystems` integration.
+Supported ECUs have a SunSpec logo on the device.
+
+| Inverter | Status |
+|---|---|
+| DS3, DS3-L | Tested, with power limit and Inverter output |
+| QS1 | Works, [reported by a user](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2#discussioncomment-19124766) |
+| YC600 | Works, [reported by users](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2#discussioncomment-19124766), also with [Inverter output](https://gathering.tweakers.net/forum/list_message/86436202#86436202) |
+
+Other models should work. For the EZ1, use the core `apsystems` integration.
 Have an untested ECU or inverter? Open an issue with a register dump (see
 Troubleshooting).
 
@@ -109,7 +114,8 @@ In the Energy dashboard, choose *Edit dashboard → Solar panels*. Pick
 **Power limit** on the ECU device curtails the output of all inverters, in
 whole percent. 100 % is no limit.
 
-- Inverters follow a change within a few minutes, in tests up to about 20.
+- Inverters follow a change within one or two ECU rounds, usually within 10
+  minutes.
 - At 0 % an ECU-R lets each inverter still deliver about 10 to 30 W. An
   ECU-R Pro turns them fully off.
 - If the ECU loses the limit, for example after a restart, the integration
@@ -150,11 +156,11 @@ automation:
 **Inverter output** on the ECU device turns all inverters off, for example
 when energy prices are negative.
 
-- Off: the inverters stop within a minute. On: most produce again within a
-  few minutes, all within 15 to 20.
-- The ECU turns the inverters on again by itself every five minutes. So while
-  the switch is off, the integration repeats the command. An inverter that
-  starts anyway is turned off again at the next update.
+- Off: the inverters stop within a few minutes. On: they produce again within
+  about 10 minutes.
+- The ECU may turn the inverters on again by itself. So while the switch is
+  off, the integration repeats the command before every ECU round. An
+  inverter that starts anyway is turned off again at the next update.
 - The switch shows your choice, not what the inverters do. Check Power.
 - The switch stays off after a restart of Home Assistant. If Home Assistant
   stops, the inverters come back on by themselves.
