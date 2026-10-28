@@ -33,7 +33,7 @@ Unofficial, not affiliated with APsystems. Use at your own risk.
 
 | ECU | Serial starts with | Modbus from firmware | Connection | Status |
 |---|---|---|---|---|
-| ECU-R | 2160 | 1.3.7 | Ethernet only | Tested (1.3.23 and 1.3.24, DS3 inverters) |
+| ECU-R | 2160, from 216000088925 | 1.3.7 | Ethernet only | Tested (1.3.23 and 1.3.24, DS3 inverters) |
 | ECU-R Pro | 2162 | 2.0.2 | Ethernet or Wi-Fi | Works, [reported by users](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2) (2.1.32A, DS3 inverters) |
 | ECU-C | 215 | C1.1.3 | Ethernet or Wi-Fi | Works, [reported by a user](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2#discussioncomment-19124766) |
 | ECU-B | 2163 | not supported by APsystems | – | Not supported |
