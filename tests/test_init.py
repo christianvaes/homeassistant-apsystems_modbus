@@ -520,6 +520,39 @@ async def test_energy_today_after_the_nightly_restart(
     assert coordinator.daily_today(2) == 0.0
 
 
+async def test_energy_today_leaves_out_yesterday_of_a_late_inverter(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    freezer.move_to(_local("2026-10-14 20:00:00"))
+    await setup_entry(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data
+
+    # In the morning unit 1 reports its new day; the ECU still shows
+    # yesterday's 541.79 Wh for unit 2, which has not reported yet.
+    freezer.move_to(_local("2026-10-15 07:42:00"))
+    set_float32(mock_ecu.for_unit(1), ENERGY_TODAY, 0.0)
+    await coordinator.async_refresh()
+    assert coordinator.data.energy_today == 0.0
+    assert coordinator.daily_today(2) == 0.0
+
+    # Also right after a restart of Home Assistant.
+    await hass.config_entries.async_reload(mock_config_entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    coordinator = mock_config_entry.runtime_data
+    assert coordinator.data.energy_today == 0.0
+
+    # Unit 2 reports its new day.
+    set_float32(mock_ecu.for_unit(2), ENERGY_TODAY, 0.0)
+    await coordinator.async_refresh()
+    set_float32(mock_ecu.for_unit(1), ENERGY_TODAY, 4.0)
+    set_float32(mock_ecu.for_unit(2), ENERGY_TODAY, 3.0)
+    await coordinator.async_refresh()
+    assert coordinator.data.energy_today == pytest.approx(7.0)
+
+
 async def test_energy_today_ignores_a_stray_zero_by_day(
     hass: HomeAssistant,
     mock_ecu: MockModbusConnection,

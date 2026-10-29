@@ -44,7 +44,8 @@ MAX_STEP_WH = 2000
 APPLY_START_AFTER_POLLS = 12
 """Apply a start value once every inverter was read, or after this many polls."""
 ECU_DAY_START = timedelta(hours=4)
-"""The ECU restarts its daily counters around 02:15; its day counts from 04:00."""
+"""The ECU restarts its daily counters at night or when an inverter first reports
+in the morning; its day counts from 04:00."""
 
 
 class _StoredLedger(TypedDict, total=False):
@@ -194,6 +195,20 @@ class EnergyLedger:
         if last is not None and pending is not None and pending < last:
             return None
         return last
+
+    def is_left_over(self, serial: str, watt_hours: float, day: date) -> bool:
+        """Whether a reading is still the counter of an ECU day before ``day``.
+
+        Until an inverter reports on a new day, the ECU keeps showing its
+        counter of the day before.
+        """
+        counter = self._counters.get(serial)
+        return (
+            counter is not None
+            and counter.day is not None
+            and counter.day < day.isoformat()
+            and counter.last == watt_hours
+        )
 
     def record_power(self, watts: float) -> None:
         """Keep the highest total power seen."""

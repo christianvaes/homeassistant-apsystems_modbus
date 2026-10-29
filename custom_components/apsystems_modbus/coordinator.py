@@ -650,12 +650,16 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
                 # The ledger guards the lifetime total against stray readings.
                 self.ledger.record_daily(self.serials[unit_id], daily, today)
                 # Energy today simply follows the ECU, including its nightly
-                # reset; only impossible values are left out.
+                # reset. Impossible values are left out, and so is yesterday's
+                # counter, which the ECU shows until an inverter reports again.
                 if math.isfinite(daily) and 0 <= daily <= MAX_DAILY_WH:
                     last_day, last = self.daily.get(unit_id, (None, 0.0))
                     if night and daily == 0 and last > 0 and last_day == today:
                         restarted = True
-                    self.daily[unit_id] = (today, daily)
+                    if self.ledger.is_left_over(self.serials[unit_id], daily, today):
+                        self.daily[unit_id] = (today, 0.0)
+                    else:
+                        self.daily[unit_id] = (today, daily)
                     taken.add(unit_id)
             snapshot[unit_id] = (daily, measurements.ac_power)
 
