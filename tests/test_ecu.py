@@ -87,14 +87,45 @@ async def test_stray_zero_frequency_still_online(
     assert inverter.measurements.is_online is True
 
 
-async def test_unsupported_layout(mock_ecu: MockModbusConnection) -> None:
+@pytest.mark.parametrize(("int_model", "float_model"), [(102, 112), (103, 113)])
+async def test_split_and_three_phase_models_are_accepted(
+    mock_ecu: MockModbusConnection, int_model: int, float_model: int
+) -> None:
+    # A QT2 reports 103 and 113; SunSpec keeps the same registers as 101 and 111.
     unit = mock_ecu.for_unit(1)
-    unit.holding[40070] = 103  # a three-phase model instead of 101
+    unit.holding[40070] = int_model
+    unit.holding[40122] = float_model
     identity = Identity(unit)
     await identity.async_update()
 
-    with pytest.raises(UnsupportedLayoutError, match="40070"):
+    identity.check_layout()
+
+
+@pytest.mark.parametrize("address", [40070, 40122])
+async def test_unsupported_layout(mock_ecu: MockModbusConnection, address: int) -> None:
+    unit = mock_ecu.for_unit(1)
+    unit.holding[address] = 160
+    identity = Identity(unit)
+    await identity.async_update()
+
+    with pytest.raises(UnsupportedLayoutError, match=str(address)):
         identity.check_layout()
+
+
+@pytest.mark.parametrize(("frequency", "online"), [(50.0, True), (0.0, False)])
+async def test_online_without_a_voltage(
+    mock_ecu: MockModbusConnection, frequency: float, online: bool
+) -> None:
+    # A three-phase inverter may leave the phase A voltage unimplemented; the
+    # ECU then sends 0xFFFF in both registers, which is a NaN.
+    unit = mock_ecu.for_unit(1)
+    unit.holding[40138] = unit.holding[40139] = 0xFFFF
+    set_float32(unit, 40146, frequency)
+    inverter = Inverter(unit, 1)
+    await inverter.async_poll(("measurements",))
+
+    assert inverter.measurements.ac_voltage is None
+    assert inverter.measurements.is_online is online
 
 
 @pytest.mark.parametrize("serial", ["/../../configuration.yaml", "7040.0001", ""])

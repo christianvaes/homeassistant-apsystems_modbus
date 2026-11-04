@@ -182,13 +182,24 @@ async def test_no_inverters_found(
 async def test_unsupported_layout(
     hass: HomeAssistant, mock_ecu: MockModbusConnection
 ) -> None:
-    mock_ecu.for_unit(1).holding[40070] = 103
+    mock_ecu.for_unit(1).holding[40070] = 160
     result = await start_user_flow(hass)
 
     result = await submit_and_wait(hass, result["flow_id"], USER_INPUT)
     assert result["errors"] == {"base": "unsupported_layout"}
 
     mock_ecu.for_unit(1).holding[40070] = 101
+    await finish(hass, result["flow_id"], USER_INPUT)
+
+
+async def test_three_phase_inverters(
+    hass: HomeAssistant, mock_ecu: MockModbusConnection
+) -> None:
+    for unit_id in (1, 2):
+        mock_ecu.for_unit(unit_id).holding[40070] = 103
+        mock_ecu.for_unit(unit_id).holding[40122] = 113
+    result = await start_user_flow(hass)
+
     await finish(hass, result["flow_id"], USER_INPUT)
 
 

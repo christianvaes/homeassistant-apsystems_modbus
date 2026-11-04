@@ -6,6 +6,8 @@ from modbus-connection, so it can be tested against the in-memory mock.
 The ECU exposes every microinverter as its own Modbus unit (the "address" set
 in EMA Manager). Each unit serves SunSpec models 1, 101 and 111, a controls
 block in the model 123 layout and a vendor block with per-channel DC values.
+Three-phase inverters such as the QT2 report models 103 and 113 instead. SunSpec
+gives 101-103 and 111-113 the same registers, so the addresses stay the same.
 Addresses below were captured from an ECU-R (firmware 1.3.23) with DS3
 inverters and are fixed; the ECU does not need to be scanned.
 
@@ -42,8 +44,8 @@ from modbus_connection.model.sunspec import enum16
 SUNSPEC_MARKER = "SunS"
 MANUFACTURER = "APsystems"
 COMMON_MODEL = 1
-INVERTER_INT_MODEL = 101
-INVERTER_FLOAT_MODEL = 111
+INVERTER_INT_MODELS = (101, 102, 103)
+INVERTER_FLOAT_MODELS = (111, 112, 113)
 CONTROLS_MODELS = (114, 123)
 
 REQUEST_TIMEOUT = 60.0
@@ -166,9 +168,9 @@ class Identity(Component):
             problems.append(f"manufacturer is {self.manufacturer!r}")
         if self.common_model != COMMON_MODEL:
             problems.append(f"model {self.common_model} at 40002")
-        if self.inverter_int_model != INVERTER_INT_MODEL:
+        if self.inverter_int_model not in INVERTER_INT_MODELS:
             problems.append(f"model {self.inverter_int_model} at 40070")
-        if self.inverter_float_model != INVERTER_FLOAT_MODEL:
+        if self.inverter_float_model not in INVERTER_FLOAT_MODELS:
             problems.append(f"model {self.inverter_float_model} at 40122")
         if not SERIAL_PATTERN.fullmatch(self.serial_number or ""):
             problems.append(f"serial number {self.serial_number!r}")

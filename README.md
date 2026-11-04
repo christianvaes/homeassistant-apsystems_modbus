@@ -43,6 +43,7 @@ Supported ECUs have a SunSpec logo on the device.
 | Inverter | Status |
 |---|---|
 | DS3, DS3-L | Tested, with power limit and Inverter output |
+| QT2 (three-phase) | Should work, [not yet confirmed](https://github.com/christianvaes/homeassistant-apsystems_modbus/issues/7) |
 | QS1 | Works, [reported by a user](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2#discussioncomment-19124766) |
 | YC600 | Works, [reported by users](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2#discussioncomment-19124766), also with [Inverter output](https://gathering.tweakers.net/forum/list_message/86436202#86436202) |
 
