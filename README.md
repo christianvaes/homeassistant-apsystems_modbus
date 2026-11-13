@@ -233,8 +233,9 @@ automation:
 | The ECU refused the connection | Modbus is off: enable it in the EMA Manager app and assign addresses |
 | No answer from the ECU | Check the IP address and the network connection |
 | No inverter answered | Just after a restart of the ECU, try again in a few minutes. Otherwise assign addresses in the EMA Manager app or enter them manually |
-| The ECU stopped answering | Stop other Modbus clients, wait five minutes, try again |
-| The ECU is unstable and often does not answer | In your router, block internet access for the ECU's cable connection. Leave the ECU on Wi-Fi so the EMA app keeps working. In tests this made the ECU stable again |
+| The ECU stopped answering during setup | Stop anything else that reads the ECU over Modbus, such as another integration. Wait five minutes and try again |
+| The sensors are unavailable now and then | That is normal. The ECU sometimes pauses and comes back by itself |
+| The ECU is unstable: the sensors are unavailable often, or until you switch the ECU off and on | First check that nothing else reads the ECU over Modbus. An ECU-R can also stop answering when it has internet over its cable, probably a bug in its firmware. In tests on one ECU-R it stayed stable once the cable had no internet. To block internet for the cable:<br>1. Make sure the ECU is also on your Wi-Fi. The EMA app then keeps working<br>2. In your router, look up the ECU. It is listed twice. Pick the one with a MAC address that starts with `80:97:1B`<br>3. Block or pause internet for that one<br>The cable is then only used for Modbus, inside your home network |
 | Register layout differs | Share a register dump in an issue |
 | Inverter has a new address | Choose Reconfigure in the menu of the integration |
 
