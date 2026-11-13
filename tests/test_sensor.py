@@ -6,7 +6,7 @@ from datetime import timedelta
 
 from freezegun.api import FrozenDateTimeFactory
 from modbus_connection import ModbusTimeoutError
-from modbus_connection.mock import MockModbusConnection
+from modbus_connection.mock import MockModbusConnection, MockModbusUnit
 import pytest
 
 from homeassistant.const import STATE_UNAVAILABLE, EntityCategory
@@ -172,6 +172,52 @@ async def test_missing_inverter_goes_unavailable_totals_stay(
         hass.states.get("sensor.apsystems_ecu_energy_today").state
     ) == pytest.approx(1.096, abs=0.001)
     assert hass.states.get("sensor.apsystems_ecu_inverters_online").state == "1"
+
+
+def go_to_sleep(unit: MockModbusUnit, power: float) -> None:
+    """Report an inverter as the ECU does after sunset: no grid, last power kept."""
+    set_float32(unit, 40138, 0.0)
+    set_float32(unit, 40146, 0.0)
+    set_float32(unit, 40144, power)
+
+
+async def test_power_is_0_while_no_inverter_is_online(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    await setup_entry(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data
+
+    go_to_sleep(mock_ecu.for_unit(1), 4.0)
+    go_to_sleep(mock_ecu.for_unit(2), 1.0)
+    await coordinator.async_refresh()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert hass.states.get("sensor.apsystems_ecu_inverters_online").state == "0"
+    assert float(hass.states.get("sensor.apsystems_ecu_power").state) == 0.0
+    assert hass.states.get("sensor.inverter_704000000001_power").state == "0.0"
+    assert hass.states.get("sensor.inverter_703000000002_power").state == "0.0"
+    # The power limit and the output switch still see what the ECU reports.
+    assert coordinator.inverters[1].measurements.ac_power == 4.0
+
+
+async def test_one_inverter_dropping_out_keeps_its_power(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    await setup_entry(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data
+
+    # During the day the ECU sometimes misses one inverter for a round.
+    go_to_sleep(mock_ecu.for_unit(2), 506.0)
+    await coordinator.async_refresh()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert hass.states.get("sensor.apsystems_ecu_inverters_online").state == "1"
+    assert hass.states.get("sensor.inverter_703000000002_power").state == "506.0"
+    assert float(hass.states.get("sensor.apsystems_ecu_power").state) == 710.0
 
 
 async def test_removed_inverter_device_is_cleaned_up(

@@ -100,6 +100,16 @@ class EcuData:
     link_lost: bool = False
     """Whether the connection broke and could not be opened again."""
 
+    @property
+    def asleep(self) -> bool:
+        """Whether no inverter is on the grid, as at night.
+
+        The ECU then still reports the last power of an inverter, often a few
+        watts, until its nightly reset. One inverter that drops out during the
+        day keeps its last power. It is usually back the next round.
+        """
+        return self.online == 0
+
 
 class EcuCoordinator(DataUpdateCoordinator[EcuData]):
     """One poll cycle reads every inverter in turn, with a budget.

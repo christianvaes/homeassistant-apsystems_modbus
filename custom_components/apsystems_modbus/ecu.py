@@ -282,7 +282,7 @@ class Measurements(Component):
         Modbus has no online flag, and the operating state always reads MPPT.
         An inverter on the grid measures its voltage and frequency, also at
         dusk while it delivers 0 W. Once it is off for the night both read 0,
-        while the ECU may keep its last power of 1 or 2 W.
+        while the ECU may keep its last power of a few watts.
 
         The ECU occasionally reports a stray 0 for the frequency while an
         inverter is producing, so either one being positive counts as online.

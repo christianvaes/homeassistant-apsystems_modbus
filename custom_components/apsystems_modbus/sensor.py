@@ -58,6 +58,8 @@ class InverterSensorDescription(SensorEntityDescription):
     value_fn: Callable[[Inverter], StateType]
     channel: int = 0
     """DC channel this sensor belongs to, 0 for none."""
+    zero_while_asleep: bool = False
+    """Show 0 instead of the last ECU value while no inverter is online."""
 
 
 ECU_SENSORS: tuple[EcuSensorDescription, ...] = (
@@ -68,7 +70,7 @@ ECU_SENSORS: tuple[EcuSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfPower.WATT,
         suggested_display_precision=0,
-        value_fn=lambda data: data.power,
+        value_fn=lambda data: 0.0 if data.asleep else data.power,
     ),
     EcuSensorDescription(
         key="energy_today",
@@ -147,6 +149,7 @@ INVERTER_SENSORS: tuple[InverterSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfPower.WATT,
         suggested_display_precision=0,
         value_fn=lambda inverter: inverter.measurements.ac_power,
+        zero_while_asleep=True,
     ),
     InverterSensorDescription(
         key="ac_voltage",
@@ -377,6 +380,13 @@ class InverterSensor(InverterEntity, SensorEntity):
     @property
     def native_value(self) -> StateType:
         """Return the last read value."""
+        data = self.coordinator.data
+        if (
+            self.entity_description.zero_while_asleep
+            and data is not None
+            and data.asleep
+        ):
+            return 0.0
         return _rounded(self.entity_description.value_fn(self.inverter))
 
 
