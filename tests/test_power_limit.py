@@ -263,7 +263,7 @@ async def test_failed_second_write_at_100_is_not_undone(
     assert coordinator.power_limit.desired == 100
     assert coordinator.power_limit.pending is True
 
-    # The ECU reads 1000/1 back: effectively 100, so nothing is written again.
+    # The ECU reads 1000/1 back: effectively 100, so this poll writes nothing.
     unit.fail_write(EXPORT_LIMIT_ENABLED_ADDRESS, None)
     await coordinator.async_refresh()
     assert writes == [(EXPORT_LIMIT_ADDRESS, 1000)]
@@ -1674,6 +1674,7 @@ async def test_lost_connection_refreshes_at_most_once_an_hour(
 
 ENTITY_KW = "number.apsystems_ecu_power_limit_kw"
 AC_POWER = 40144
+ENERGY_TODAY = 40154
 
 
 def entry_with_power(kw: float) -> MockConfigEntry:
@@ -1691,6 +1692,20 @@ def set_power(mock_ecu: MockModbusConnection, watts: float) -> None:
     """Make both inverters report the same AC power."""
     for unit_id in (1, 2):
         set_float32(mock_ecu.for_unit(unit_id), AC_POWER, watts)
+
+
+async def poll_after_a_round(
+    coordinator: EcuCoordinator, mock_ecu: MockModbusConnection
+) -> None:
+    """Poll after an ECU round in which both inverters reported again.
+
+    An inverter that delivers moves its daily counter every round. Values
+    that stay the same mean the ECU did not hear it.
+    """
+    for unit_id, inverter in coordinator.inverters.items():
+        daily = inverter.measurements.energy_today or 0.0
+        set_float32(mock_ecu.for_unit(unit_id), ENERGY_TODAY, daily + 5.0)
+    await coordinator.async_refresh()
 
 
 async def set_kw(hass: HomeAssistant, value: float) -> None:
@@ -1790,7 +1805,30 @@ async def test_no_refresh_below_the_limit_or_for_impossible_values(
     assert writes == []
 
 
+@pytest.mark.parametrize(("early", "refreshed"), [(6, False), (5, True)])
 async def test_no_overshoot_check_before_the_next_round(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    freezer: FrozenDateTimeFactory,
+    early: int,
+    refreshed: bool,
+) -> None:
+    coordinator = await setup_entry(hass, entry_with_power(1.46))
+    await set_limit(hass, 0)
+    writes = record_writes(mock_ecu.for_unit(1))
+
+    # Until the next ECU round has reached every inverter, the new limit is
+    # still on its way. After that round an inverter above the limit has
+    # missed it. Home Assistant may start the poll a moment early.
+    set_power(mock_ecu, 300.0)
+    settle = timedelta(seconds=coordinator.settle)
+    freezer.tick(to_next_round() + settle - timedelta(seconds=early))
+    await coordinator.async_refresh()
+
+    assert writes == ([(EXPORT_LIMIT_ADDRESS, 10)] if refreshed else [])
+
+
+async def test_values_the_ecu_did_not_refresh_are_not_judged(
     hass: HomeAssistant,
     mock_ecu: MockModbusConnection,
     freezer: FrozenDateTimeFactory,
@@ -1800,18 +1838,208 @@ async def test_no_overshoot_check_before_the_next_round(
     await set_limit(hass, 0)
     writes = record_writes(mock_ecu.for_unit(1))
 
-    # Until the next ECU round has reached every inverter, the new limit is
-    # still on its way.
-    settle = timedelta(seconds=coordinator.settle)
-    freezer.tick(to_next_round() + settle - timedelta(seconds=6))
+    # The poll right after the change shows the power from before it.
+    freezer.tick(timedelta(seconds=30))
     await coordinator.async_refresh()
     assert writes == []
 
-    # After that round an inverter above the limit has missed it. Home
-    # Assistant may start the poll a moment early.
-    freezer.tick(timedelta(seconds=5))
+    # The ECU then skips its round: the poll after it reads the very same
+    # values, and those say nothing about the limit.
+    settle = timedelta(seconds=coordinator.settle)
+    freezer.tick(to_next_round() + settle)
+    await coordinator.async_refresh()
+    assert writes == []
+    assert coordinator.power_limit.overshoot_refreshes == 0
+
+    # New values that are still too high show the inverters missed it.
+    freezer.tick(timedelta(minutes=5))
+    await poll_after_a_round(coordinator, mock_ecu)
+    assert writes == [(EXPORT_LIMIT_ADDRESS, 10)]
+    assert coordinator.power_limit.overshoot_refreshes == 1
+
+
+async def test_an_inverter_without_new_values_does_not_count_as_above_the_limit(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    coordinator = await setup_entry(hass, entry_with_power(1.46))
+    set_power(mock_ecu, 300.0)
+    await set_limit(hass, 0)
+    writes = record_writes(mock_ecu.for_unit(1))
+    freezer.tick(timedelta(seconds=30))
+    await coordinator.async_refresh()
+
+    # Inverter 2 came down. The ECU did not hear inverter 1 in its round and
+    # still shows its power from before the limit.
+    set_float32(mock_ecu.for_unit(2), AC_POWER, 25.0)
+    settle = timedelta(seconds=coordinator.settle)
+    freezer.tick(to_next_round() + settle)
+    await coordinator.async_refresh()
+
+    assert writes == []
+    assert coordinator.power_limit.overshoot_refreshes == 0
+
+
+@pytest.mark.parametrize("counter", [float("nan"), float("inf"), -1.0])
+async def test_without_a_daily_counter_the_same_power_still_counts(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    freezer: FrozenDateTimeFactory,
+    counter: float,
+) -> None:
+    coordinator = await setup_entry(hass, entry_with_power(1.46))
+    for unit_id in (1, 2):
+        set_float32(mock_ecu.for_unit(unit_id), ENERGY_TODAY, counter)
+    set_power(mock_ecu, 300.0)
+    await set_limit(hass, 0)
+    writes = record_writes(mock_ecu.for_unit(1))
+    freezer.tick(timedelta(seconds=30))
+    await coordinator.async_refresh()
+
+    # An ECU-R reports whole watts, so a steady inverter shows the same power
+    # round after round. Without a counter that cannot be told from an
+    # inverter the ECU did not hear, so it counts.
+    settle = timedelta(seconds=coordinator.settle)
+    freezer.tick(to_next_round() + settle)
+    await coordinator.async_refresh()
+
+    assert writes == [(EXPORT_LIMIT_ADDRESS, 10)]
+
+
+async def test_new_values_of_a_poll_that_could_not_judge_count_later(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    coordinator = await setup_entry(hass, entry_with_power(1.46))
+    set_power(mock_ecu, 300.0)
+    await set_limit(hass, 0)
+    writes = record_writes(mock_ecu.for_unit(1))
+    freezer.tick(timedelta(seconds=30))
+    await coordinator.async_refresh()
+
+    # The round after the limit brings new values that are still too high,
+    # but one inverter does not answer, so nothing is written in this poll.
+    settle = timedelta(seconds=coordinator.settle)
+    freezer.tick(to_next_round() + settle)
+    daily = coordinator.inverters[1].measurements.energy_today
+    assert daily is not None
+    set_float32(mock_ecu.for_unit(1), ENERGY_TODAY, daily + 5.0)
+    mock_ecu.for_unit(2).fail_requests(ModbusTimeoutError())
+    await coordinator.async_refresh()
+    mock_ecu.for_unit(2).fail_requests(None)
+    assert writes == []
+
+    # The ECU skips the next round. The values are from after the limit all
+    # the same, so the first poll that can write refreshes.
+    freezer.tick(timedelta(minutes=5))
     await coordinator.async_refresh()
     assert writes == [(EXPORT_LIMIT_ADDRESS, 10)]
+
+
+async def test_one_inverter_with_new_values_above_the_limit_is_enough(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    coordinator = await setup_entry(hass, entry_with_power(1.46))
+    set_power(mock_ecu, 300.0)
+    await set_limit(hass, 0)
+    writes = record_writes(mock_ecu.for_unit(1))
+    freezer.tick(timedelta(seconds=30))
+    await coordinator.async_refresh()
+
+    # The ECU heard inverter 2 again and it still delivers too much. It did
+    # not hear inverter 1.
+    set_float32(mock_ecu.for_unit(2), AC_POWER, 310.0)
+    settle = timedelta(seconds=coordinator.settle)
+    freezer.tick(to_next_round() + settle)
+    await coordinator.async_refresh()
+
+    assert writes == [(EXPORT_LIMIT_ADDRESS, 10)]
+
+
+async def test_after_a_start_the_power_counts_whatever_its_age(
+    hass: HomeAssistant, mock_ecu: MockModbusConnection
+) -> None:
+    entry = entry_with_power(1.46)
+    await setup_entry(hass, entry)
+    await set_limit(hass, 9)
+    set_power(mock_ecu, 300.0)
+    writes = record_writes(mock_ecu.for_unit(1))
+
+    # When the limit was written is not known after a start, so the first
+    # poll judges what it reads.
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert writes == [(EXPORT_LIMIT_ADDRESS, 80)]
+
+
+async def test_a_limit_the_ecu_did_not_answer_is_judged_after_its_own_round(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    # The ECU holds 0 % without the flag, so only the flag is still to send.
+    unit = mock_ecu.for_unit(1)
+    set_ecu(unit, 0, 0)
+    coordinator = await setup_entry(hass, entry_with_power(1.46))
+    set_power(mock_ecu, 300.0)
+
+    # The ECU takes the limit over, but its answer never comes.
+    unit.fail_write(EXPORT_LIMIT_ENABLED_ADDRESS, ModbusTimeoutError())
+    await set_limit(hass, 0)
+    unit.fail_write(EXPORT_LIMIT_ENABLED_ADDRESS, None)
+    set_ecu(unit, 0, 1)
+    writes = record_writes(unit)
+
+    # The next poll shows the limit arrived. When it did is not known, so
+    # the power of this poll can still be from before it.
+    settle = timedelta(seconds=coordinator.settle)
+    freezer.tick(to_next_round() + settle)
+    await poll_after_a_round(coordinator, mock_ecu)
+    assert coordinator.power_limit.pending is False
+    assert writes == []
+    assert coordinator.power_limit.overshoot_refreshes == 0
+
+    # After one more ECU round an inverter above the limit has missed it.
+    freezer.tick(to_next_round() + settle)
+    await poll_after_a_round(coordinator, mock_ecu)
+    assert writes == [(EXPORT_LIMIT_ADDRESS, 10)]
+    assert coordinator.power_limit.overshoot_refreshes == 1
+
+
+async def test_a_release_the_ecu_did_not_answer_is_still_refreshed(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    coordinator = await setup_entry(hass, entry_with_power(1.46))
+    unit = mock_ecu.for_unit(1)
+    await set_limit(hass, 9)
+    set_power(mock_ecu, 25.0)  # The inverters follow the limit.
+    freezer.tick(REFRESH_DELAY)
+    await coordinator.async_refresh()
+
+    # The ECU takes the release over, but its answer never comes.
+    unit.fail_write(EXPORT_LIMIT_ADDRESS, ModbusTimeoutError())
+    await set_limit(hass, 100)
+    unit.fail_write(EXPORT_LIMIT_ADDRESS, None)
+    set_ecu(unit, 100, 1)
+    writes = record_writes(unit)
+    freezer.tick(to_next_round())
+    await coordinator.async_refresh()
+    assert coordinator.power_limit.pending is False
+    assert writes == []
+
+    # An inverter can miss a release as well, so it is sent again one ECU
+    # round after the poll that showed it arrived.
+    freezer.tick(to_next_round())
+    await coordinator.async_refresh()
+    assert writes == [(EXPORT_LIMIT_ADDRESS, 990)]
+    assert coordinator.power_limit.refreshing is True
 
 
 async def test_brake_after_two_refreshes_tells_the_user(
@@ -1828,18 +2056,18 @@ async def test_brake_after_two_refreshes_tells_the_user(
 
     for _ in range(2):
         freezer.tick(REFRESH_DELAY)
-        await coordinator.async_refresh()
+        await poll_after_a_round(coordinator, mock_ecu)
         freezer.tick(timedelta(minutes=1))
-        await coordinator.async_refresh()  # starts a refresh
+        await poll_after_a_round(coordinator, mock_ecu)  # starts a refresh
         freezer.tick(STEP_HOLD)
-        await coordinator.async_refresh()  # finishes it
+        await poll_after_a_round(coordinator, mock_ecu)  # finishes it
     assert coordinator.power_limit.overshoot_refreshes == 2
 
     writes = record_writes(mock_ecu.for_unit(1))
     freezer.tick(REFRESH_DELAY)
-    await coordinator.async_refresh()
+    await poll_after_a_round(coordinator, mock_ecu)
     freezer.tick(timedelta(minutes=1))
-    await coordinator.async_refresh()
+    await poll_after_a_round(coordinator, mock_ecu)
 
     assert writes == []
     issue_id = f"check_installation_power_{entry.entry_id}"
@@ -2037,11 +2265,11 @@ async def test_watched_limit_missed_again_after_a_night_is_refreshed(
         set_power(mock_ecu, 300.0)
         for _ in range(2):
             freezer.tick(REFRESH_DELAY)
-            await coordinator.async_refresh()
+            await poll_after_a_round(coordinator, mock_ecu)
             freezer.tick(timedelta(minutes=1))
-            await coordinator.async_refresh()  # starts a refresh
+            await poll_after_a_round(coordinator, mock_ecu)  # starts a refresh
             freezer.tick(STEP_HOLD)
-            await coordinator.async_refresh()  # finishes it
+            await poll_after_a_round(coordinator, mock_ecu)  # finishes it
 
     await missed_for_a_day()
     assert coordinator.power_limit.overshoot_refreshes == 2
@@ -2053,7 +2281,7 @@ async def test_watched_limit_missed_again_after_a_night_is_refreshed(
         set_float32(unit, AC_POWER, 0.0)
         set_float32(unit, 40146, 0.0)
     freezer.tick(timedelta(hours=8))
-    await coordinator.async_refresh()
+    await poll_after_a_round(coordinator, mock_ecu)
     assert coordinator.power_limit.overshoot_refreshes == 0
 
     # Next day the ECU restarted overnight and the inverters lost the limit.
@@ -2078,11 +2306,11 @@ async def test_notice_goes_with_a_new_choice_after_a_night(
     set_power(mock_ecu, 300.0)  # e.g. DS3s of 880 W entered as 730 W
     for _ in range(3):
         freezer.tick(REFRESH_DELAY)
-        await coordinator.async_refresh()
+        await poll_after_a_round(coordinator, mock_ecu)
         freezer.tick(timedelta(minutes=1))
-        await coordinator.async_refresh()
+        await poll_after_a_round(coordinator, mock_ecu)
         freezer.tick(STEP_HOLD)
-        await coordinator.async_refresh()
+        await poll_after_a_round(coordinator, mock_ecu)
     issue_id = f"check_installation_power_{entry.entry_id}"
     assert ir.async_get(hass).async_get_issue("apsystems_modbus", issue_id)
 
@@ -2093,7 +2321,7 @@ async def test_notice_goes_with_a_new_choice_after_a_night(
         set_float32(unit, AC_POWER, 0.0)
         set_float32(unit, 40146, 0.0)
     freezer.tick(timedelta(hours=8))
-    await coordinator.async_refresh()
+    await poll_after_a_round(coordinator, mock_ecu)
     assert coordinator.power_limit.overshoot_refreshes == 0
     assert ir.async_get(hass).async_get_issue("apsystems_modbus", issue_id)
 
@@ -2297,6 +2525,30 @@ async def test_limit_waits_while_the_lead_was_never_read(
     assert not coordinator.power_limit.pending
 
 
+async def test_a_choice_the_ecu_held_before_the_first_read_is_not_refreshed(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    set_ecu(mock_ecu.for_unit(1), 40, 1)
+    mock_ecu.for_unit(1).fail_requests(ModbusTimeoutError())
+    coordinator = await setup_entry(hass, mock_config_entry)
+    await coordinator.async_refresh()
+    writes = record_writes(mock_ecu.for_unit(1))
+
+    # Nothing was sent, so there is no write an inverter can have missed.
+    await set_limit(hass, 40)
+    mock_ecu.for_unit(1).fail_requests(None)
+    for wait in (timedelta(0), REFRESH_DELAY, STEP_HOLD):
+        freezer.tick(wait)
+        await coordinator.async_refresh()
+
+    assert not coordinator.power_limit.pending
+    assert coordinator.power_limit.next_refresh is None
+    assert writes == []
+
+
 async def test_unreadable_limit_that_was_read_can_still_be_set(
     hass: HomeAssistant,
     mock_ecu: MockModbusConnection,
@@ -2369,20 +2621,20 @@ async def test_after_a_refresh_an_inverter_gets_time_to_come_down(
 
     # The first round after the choice: they missed it, refresh at once.
     freezer.tick(to_next_round() + timedelta(seconds=coordinator.settle))
-    await coordinator.async_refresh()
+    await poll_after_a_round(coordinator, mock_ecu)
     freezer.tick(STEP_HOLD)
-    await coordinator.async_refresh()
+    await poll_after_a_round(coordinator, mock_ecu)
     assert coordinator.power_limit.overshoot_refreshes == 1
     writes = record_writes(mock_ecu.for_unit(1))
 
     # Still above the limit after the refresh: they may be coming down
     # (26 Oct: three DS3-L took about 15 minutes), so no second one yet.
     freezer.tick(REFRESH_DELAY - timedelta(seconds=1))
-    await coordinator.async_refresh()
+    await poll_after_a_round(coordinator, mock_ecu)
     assert writes == []
 
     freezer.tick(timedelta(seconds=1))
-    await coordinator.async_refresh()
+    await poll_after_a_round(coordinator, mock_ecu)
     assert writes == [(EXPORT_LIMIT_ADDRESS, 10)]
     assert coordinator.power_limit.overshoot_refreshes == 2
 

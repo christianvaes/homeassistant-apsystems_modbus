@@ -111,6 +111,11 @@ class EcuData:
         return self.online == 0
 
 
+def usable_counter(daily: float | None) -> bool:
+    """Whether a daily counter holds a value an inverter can have reported."""
+    return daily is not None and math.isfinite(daily) and 0 <= daily <= MAX_DAILY_WH
+
+
 class EcuCoordinator(DataUpdateCoordinator[EcuData]):
     """One poll cycle reads every inverter in turn, with a budget.
 
@@ -205,6 +210,8 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         """Per unit id: when its status block was last refreshed."""
         self._reported: set[int] = set()
         self._snapshot: dict[int, tuple[float | None, float | None]] = {}
+        self._first_read: dict[int, datetime] = {}
+        """Per unit id: the start of the cycle that first read its present values."""
         self._last_change: datetime | None = None
         self._daily_at_start = {
             unit: counter for unit, (_, counter) in self.daily.items()
@@ -662,7 +669,7 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
                 # Energy today simply follows the ECU, including its nightly
                 # reset. Impossible values are left out, and so is yesterday's
                 # counter, which the ECU shows until an inverter reports again.
-                if math.isfinite(daily) and 0 <= daily <= MAX_DAILY_WH:
+                if usable_counter(daily):
                     last_day, last = self.daily.get(unit_id, (None, 0.0))
                     if night and daily == 0 and last > 0 and last_day == today:
                         restarted = True
@@ -671,7 +678,7 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
                     else:
                         self.daily[unit_id] = (today, daily)
                     taken.add(unit_id)
-            snapshot[unit_id] = (daily, measurements.ac_power)
+            snapshot[unit_id] = self._reading(unit_id)
 
         if restarted:
             # Inverters not read since the restart would still count with
@@ -695,12 +702,21 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         )
         self.ledger.schedule_save()
 
-        if any(self._changed(unit, value) for unit, value in snapshot.items()) or (
-            self._last_change is None
-        ):
+        self._note_changes(snapshot)
+        data.last_change = self._last_change
+
+    def _note_changes(
+        self, snapshot: dict[int, tuple[float | None, float | None]]
+    ) -> None:
+        """Keep what this cycle read, and since when each inverter shows it."""
+        changed = [
+            unit for unit, value in snapshot.items() if self._changed(unit, value)
+        ]
+        for unit in changed:
+            self._first_read[unit] = self.cycle_started
+        if changed or self._last_change is None:
             self._last_change = dt_util.utcnow()
         self._snapshot.update(snapshot)
-        data.last_change = self._last_change
 
     def _changed(self, unit_id: int, value: tuple[float | None, float | None]) -> bool:
         """Whether an inverter reports other values than at its last read."""
@@ -709,6 +725,27 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
         # First read after a restart: so an unchanged night is no news. No
         # stored counter of today means the nightly reset, so 0.
         return self._daily_at_start.get(unit_id, 0.0) != value[0]
+
+    def _reading(self, unit_id: int) -> tuple[float | None, float | None]:
+        """Return the values that tell one read of an inverter from the next."""
+        measurements = self.inverters[unit_id].measurements
+        return (measurements.energy_today, measurements.ac_power)
+
+    def values_first_read(self, unit_id: int) -> datetime | None:
+        """Return the start of the cycle that first read an inverter's present values.
+
+        The ECU keeps showing the last values of an inverter it did not hear
+        in its round, so values can be older than the cycle that read them.
+        None when they have not changed since the start. An inverter without
+        a usable daily counter always counts as read in this cycle.
+        """
+        reading = self._reading(unit_id)
+        if not usable_counter(reading[0]) or self._changed(unit_id, reading):
+            # An ECU-R reports whole watts, so a steady inverter shows the same
+            # power in the next round. Without a daily counter nothing tells
+            # that from an inverter the ECU did not hear, so it counts as new.
+            return self.cycle_started
+        return self._first_read.get(unit_id)
 
     @property
     def last_change(self) -> datetime | None:

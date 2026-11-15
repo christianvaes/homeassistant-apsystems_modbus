@@ -23,8 +23,10 @@ only the last one partly shows, as a failed poll. So:
   row read something else, the choice is written again, at most once per
   ten minutes and at most ``MAX_REWRITES`` times; then it waits for a new
   choice. A failed user write is retried after the next healthy poll, also
-  at most once per ten minutes. Before the limit was read once, a choice
-  waits for that read, so nothing is written blind.
+  at most once per ten minutes. A write the ECU did not answer may have
+  arrived all the same. When the ECU then reports the choice, that read
+  counts as the write. Before the limit was read once, a choice waits for
+  that read, so nothing is written blind.
 * The ECU sometimes falls back to its factory table (30 % with the flag as a
   raw 1; written values read back as ASCII). The inverters do not follow it,
   so writing the choice back only repairs the table and plans no refreshes.
@@ -40,6 +42,10 @@ only the last one partly shows, as a failed poll. So:
   the first time already after one ECU round, because an inverter the ECU
   skipped stays at full power. After a refresh it waits longer, because an
   inverter that did get it can take a quarter of an hour to come down.
+  Only values first read after that count. When the ECU skips a round, or
+  does not hear an inverter, it shows the power from before the limit. That
+  shows in the daily counter, which then stands still as well. An inverter
+  without a usable counter always counts.
   Below 100 a missed limit then shows as soon as it matters, so the timed
   refreshes above are left out: they would only add writes to an ECU that
   is easily overloaded.
@@ -213,6 +219,9 @@ class PowerLimit:
         self.pending = False
         """Whether the chosen limit still has to reach the ECU: a write failed,
         or the limit was not read yet."""
+        self._sent = False
+        """Whether a limit was ever sent. Until then a pending choice only
+        waits for the first read."""
         self.shown: int | None = None
         """The limit presented to the user."""
         self.deviations = 0
@@ -412,6 +421,7 @@ class PowerLimit:
             return
         async with self._coordinator.ready_link():
             _LOGGER.debug("Writing power limit register %s = %s", address, int(value))
+            self._sent = True
             try:
                 await write(value)
             except UNANSWERED:
@@ -448,14 +458,19 @@ class PowerLimit:
                 await self._async_finish_refresh(now)
             return
 
-        self._follow(reported)
+        self._follow(reported, now)
         if not busy:
             await self._async_keep_aligned(data, reported, now)
 
-    def _follow(self, reported: int) -> None:
+    def _follow(self, reported: int, now: datetime) -> None:
         """Update the shown value from the readback of one poll."""
         if reported == self.desired:
             self._adopt(reported)
+            if self.pending and self._sent:
+                # A write the ECU did not answer arrived all the same. When
+                # is not known, so it counts as written at this read.
+                self._last_written = now
+                self._plan_refreshes_for_choice(now)
             self.pending = False
             self.rewrites = 0
         elif self.shown is None or reported == self.shown:
@@ -537,9 +552,19 @@ class PowerLimit:
             return  # The chosen value has not reached the ECU yet.
         over = self._overshooting(data)
         # Without a write since the start, the last write counts as long ago.
-        written = self._last_written
-        started = self._coordinator.cycle_started
-        if not over or (written is not None and started < self._settled_after(written)):
+        if (written := self._last_written) is not None:
+            settled = self._settled_after(written)
+            if self._coordinator.cycle_started < settled:
+                return
+            # The ECU keeps showing the values of an inverter it did not hear.
+            # Values first read before the limit had settled say nothing.
+            first_read = self._coordinator.values_first_read
+            over = {
+                unit
+                for unit in over
+                if (since := first_read(unit)) is not None and since >= settled
+            }
+        if not over:
             return
         due = self._refresh.next_at
         if due is not None and now >= due:
