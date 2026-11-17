@@ -1,0 +1,361 @@
+blueprint:
+  name: "APsystems Modbus: fully automatic dynamic tariff control"
+  description: >-
+    Turns Inverter output off or lowers the Power limit when power prices go negative.
+    For one ECU of the APsystems Modbus integration.
+
+
+    **Import price below 0:** Inverter output turns off. You get paid to use power from
+    the grid, so your solar panels stop.
+
+    **Export price below your setting, import price 0 or higher:** the Power limit goes
+    down to what your home uses. Exporting costs you money, but your own solar power
+    still saves you the import price.
+
+    **All other times:** Inverter output on and Power limit 100 %.
+
+
+    To protect the ECU, the Power limit changes at most once every 30 minutes by
+    default. You can set this time under Options.
+
+    If a price is missing for more than an hour, Inverter output turns on and the Power
+    limit goes back to 100 %.
+
+    Turn this automation off if you want to set Inverter output or the Power limit
+    yourself.
+  domain: automation
+  author: christianvaes
+  source_url: https://github.com/christianvaes/homeassistant-apsystems_modbus/blob/main/blueprints/automation/apsystems_modbus/dynamic_tariffs.yaml
+  homeassistant:
+    min_version: 2026.10.0
+  input:
+    ecu:
+      name: ECU
+      description: The ECU that controls your solar panels.
+      selector:
+        device:
+          filter:
+            - integration: apsystems_modbus
+              model: ECU
+    import_price:
+      name: Import price per kWh
+      description: >-
+        The sensor with the total price you pay per kWh you import, including tax and
+        supplier costs. A bare market price is not enough.
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              unit_of_measurement:
+                - "€/kWh"
+                - "EUR/kWh"
+                - "ct/kWh"
+                - "€/MWh"
+                - "EUR/MWh"
+                - "SEK/kWh"
+                - "NOK/kWh"
+                - "DKK/kWh"
+                - "kr/kWh"
+                - "GBP/kWh"
+                - "£/kWh"
+                - "p/kWh"
+                - "USD/kWh"
+                - "$/kWh"
+                - "CHF/kWh"
+                - "PLN/kWh"
+    limit_output:
+      name: Limit the output of the solar panels
+      icon: mdi:solar-power-variant
+      description: >-
+        When exporting to the grid costs you money, your solar panels only make
+        what you use yourself. For this, first fill in the installation power of the
+        integration (Settings → Devices & services → APsystems Modbus → Configure).
+      collapsed: true
+      input:
+        export_price:
+          name: Export price per kWh (optional)
+          description: >-
+            The sensor with what you get per kWh you export to the grid. Leave it empty
+            if it is the same as the import price. Then this group does nothing.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  unit_of_measurement:
+                    - "€/kWh"
+                    - "EUR/kWh"
+                    - "ct/kWh"
+                    - "€/MWh"
+                    - "EUR/MWh"
+                    - "SEK/kWh"
+                    - "NOK/kWh"
+                    - "DKK/kWh"
+                    - "kr/kWh"
+                    - "GBP/kWh"
+                    - "£/kWh"
+                    - "p/kWh"
+                    - "USD/kWh"
+                    - "$/kWh"
+                    - "CHF/kWh"
+                    - "PLN/kWh"
+        export_threshold:
+          name: Start below this export price
+          description: >-
+            Below this export price your solar panels only make what you use. The
+            default -0.01 means: as soon as exporting costs you 1 cent per kWh or
+            more. In euro (or your currency) per kWh, also when your price sensor
+            shows cents or MWh.
+          default: -0.01
+          selector:
+            number:
+              min: -1
+              max: 1
+              step: 0.001
+              mode: box
+        grid_power:
+          name: Grid power (optional)
+          description: >-
+            The power from or to the grid, for example from your P1 meter. Positive
+            when you import, negative when you export. Your
+            solar panels then make what the house uses plus 0.5 kW. Do you have
+            separate sensors for import and export? Make a template helper
+            (Settings → Devices & services → Helpers) with import minus export. In the
+            helper, choose device class Power and unit W or kW.
+          default: ""
+          selector:
+            entity:
+              domain: sensor
+              device_class: power
+        power_demand:
+          name: Custom power demand (optional)
+          description: >-
+            Use this instead of grid power if devices such as a home battery or an
+            electric car should get the solar power first. What your house and these
+            devices can use right now, in W or kW. Your solar panels then make at most
+            this much. Make this sensor yourself with a
+            template helper (Settings → Devices & services → Helpers), for example
+            house use plus what your battery can still charge. In the helper, choose
+            device class Power and unit W or kW.
+          default: ""
+          selector:
+            entity:
+              domain: sensor
+              device_class: power
+    options:
+      name: Options
+      icon: mdi:cog
+      description: The defaults suit most users.
+      collapsed: true
+      input:
+        min_minutes:
+          name: Minimum time between limit changes
+          description: >-
+            How long to wait at least between two changes of the limit, also when it
+            goes back to 100 %. This spares the ECU. On an ECU-R keep it at 30
+            minutes or more: changes every 15 minutes made the ECU unstable in a
+            test.
+          default: 30
+          selector:
+            number:
+              min: 5
+              max: 120
+              step: 5
+              unit_of_measurement: min
+        notify:
+          name: Notify (optional)
+          description: >-
+            Your phone or other device gets a message when Inverter output switches,
+            and when the limit starts or ends.
+          default: ""
+          selector:
+            entity:
+              domain: notify
+
+mode: restart
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input import_price
+    to: ~
+    id: price
+  - trigger: state
+    entity_id: !input import_price
+    to:
+      - unknown
+      - unavailable
+    for:
+      hours: 1
+    id: price
+  - trigger: homeassistant
+    event: start
+    id: price
+  - trigger: template
+    value_template: "{{ now().minute % 5 == 2 }}"
+    id: limit
+
+variables:
+  ecu: !input ecu
+  import_entity: !input import_price
+  export_entity: !input export_price
+  export_threshold: !input export_threshold
+  grid_entity: !input grid_power
+  demand_entity: !input power_demand
+  min_minutes: !input min_minutes
+  notify_entity: !input notify
+  ecu_entities: "{{ device_entities(ecu) if ecu else [] }}"
+  limit_entity: >-
+    {{ ecu_entities | select('match', 'number[.]') | select('is_state_attr', 'unit_of_measurement', '%')
+       | first | default('') }}
+  limit_kw_entity: >-
+    {{ ecu_entities | select('match', 'number[.]') | select('is_state_attr', 'unit_of_measurement', 'kW')
+       | first | default('') }}
+  switch_entity: "{{ ecu_entities | select('match', 'switch[.]') | first | default('') }}"
+  power_entity: >-
+    {{ ecu_entities | select('match', 'sensor[.]') | select('is_state_attr', 'device_class', 'power')
+       | select('is_state_attr', 'state_class', 'measurement') | first | default('') }}
+  data_entity: >-
+    {{ ecu_entities | select('match', 'sensor[.]') | select('is_state_attr', 'device_class', 'timestamp')
+       | first | default('') }}
+  measurements: []
+
+conditions:
+  - alias: The ECU has its switch and power limit, and the integration is loaded
+    condition: template
+    value_template: >-
+      {{ limit_entity != '' and switch_entity != ''
+         and states(switch_entity) in ['on', 'off'] }}
+
+actions:
+  - alias: Measure, twice a minute apart for the limit
+    repeat:
+      count: "{{ 2 if trigger.id == 'limit' else 1 }}"
+      sequence:
+        - delay:
+            seconds: "{{ 0 if trigger.id != 'limit' else (30 if repeat.first else 60) }}"
+        - variables:
+            measurements: >-
+              {%- set import_price = states(import_entity) | float(none) -%}
+              {%- set export_price = import_price if not export_entity else states(export_entity) | float(none) -%}
+              {%- set export_unit = (state_attr(export_entity, 'unit_of_measurement') or '') if export_entity else '' -%}
+              {%- set per_kwh = (100 if export_unit[:1] in ['c', 'p'] else 1) * (1000 if 'MWh' in export_unit else 1) -%}
+              {%- set export_price = none if export_price is none else export_price / per_kwh -%}
+              {%- set missing = import_entity if import_price is none else (export_entity if export_price is none else '') -%}
+              {%- if is_state('sun.sun', 'below_horizon') -%}
+                {%- set situation = 'normal' -%}
+              {%- elif import_price is not none and import_price < 0 -%}
+                {%- set situation = 'off' -%}
+              {%- elif missing -%}
+                {%- set since = states[missing].last_changed if states[missing] is not none else none -%}
+                {%- set long_unknown = since is none or (now() - since).total_seconds() >= 3600 -%}
+                {%- set situation = 'normal' if long_unknown else 'unknown' -%}
+              {%- elif export_entity and export_price < export_threshold -%}
+                {%- set situation = 'limit_output' -%}
+              {%- else -%}
+                {%- set situation = 'normal' -%}
+              {%- endif -%}
+              {%- set desired = state_attr(limit_entity, 'desired') -%}
+              {%- set desired = 100 if desired is none else desired | int -%}
+              {%- set total = state_attr(limit_kw_entity, 'max') | float(0) if limit_kw_entity else 0 -%}
+              {%- set read_at = states(data_entity) | as_datetime if data_entity else none -%}
+              {%- set fresh = read_at is not none and (now() - read_at).total_seconds() <= 600 -%}
+              {%- set power = states(power_entity) | float(none) if power_entity else none -%}
+              {%- set power_kw = state_attr(power_entity, 'unit_of_measurement') == 'kW' if power_entity else false -%}
+              {%- set power = none if power is none else (power * 1000 if power_kw else power) -%}
+              {%- if demand_entity -%}
+                {%- set own = states(demand_entity) | float(none) -%}
+                {%- set in_watt = state_attr(demand_entity, 'unit_of_measurement') == 'W' -%}
+                {%- set demand = none if own is none else (own / 1000 if in_watt else own) -%}
+              {%- elif grid_entity -%}
+                {%- set grid = states(grid_entity) | float(none) -%}
+                {%- set grid_kw = state_attr(grid_entity, 'unit_of_measurement') == 'kW' -%}
+                {%- set grid = none if grid is none else (grid * 1000 if grid_kw else grid) -%}
+                {%- set demand = none if grid is none or power is none else (power + grid) / 1000 + 0.5 -%}
+              {%- else -%}
+                {%- set demand = none -%}
+              {%- endif -%}
+              {%- set target = none -%}
+              {%- if situation == 'limit_output' and total > 0 and fresh and demand is not none and power is not none -%}
+                {%- set share = demand / total * 100 -%}
+                {%- set wanted = [[share | round(0, 'ceil') | int, 0] | max, 100] | min -%}
+                {%- if desired >= 100 -%}
+                  {%- if power / 1000 > demand and wanted < 100 -%}
+                    {%- set target = wanted -%}
+                  {%- endif -%}
+                {%- elif (share - desired) | abs >= 10 -%}
+                  {%- set target = wanted -%}
+                {%- endif -%}
+              {%- elif situation == 'normal' and desired < 100 -%}
+                {%- set target = 100 -%}
+              {%- endif -%}
+              {%- set changed = states[limit_entity].last_updated if states[limit_entity] is not none else none -%}
+              {%- set waiting = changed is not none and (now() - changed).total_seconds() < min_minutes * 60 -%}
+              {%- set result = {
+                    'situation': situation,
+                    'switch_on': {'off': false, 'normal': true, 'limit_output': true}.get(situation),
+                    'target': target,
+                    'desired': desired,
+                    'waiting': waiting,
+                    'import_price': import_price,
+                    'export_price': export_price,
+                  } -%}
+              {{ measurements + [result] }}
+  - variables:
+      m1: "{{ measurements[0] }}"
+      m2: "{{ measurements[-1] }}"
+  - alias: Inverter output
+    if:
+      - condition: template
+        value_template: >-
+          {{ m2.switch_on is not none and m2.switch_on != is_state(switch_entity, 'on') }}
+    then:
+      - action: "switch.turn_{{ 'on' if m2.switch_on else 'off' }}"
+        target:
+          entity_id: "{{ switch_entity }}"
+        continue_on_error: true
+      - if:
+          - condition: template
+            value_template: "{{ notify_entity != '' }}"
+        then:
+          - action: notify.send_message
+            target:
+              entity_id: "{{ notify_entity }}"
+            data:
+              title: "Inverter output {{ 'on' if m2.switch_on else 'off' }}"
+              message: >-
+                {{ 'The import price is below 0' if m2.situation == 'off'
+                   else ('The import price is 0 or higher again' if m2.situation == 'limit_output'
+                   else 'Back to normal') }}.
+                Import price {{ m2.import_price if m2.import_price is not none else 'unknown' }}.
+            continue_on_error: true
+  - alias: Power limit
+    if:
+      - condition: template
+        value_template: >-
+          {{ trigger.id == 'limit'
+             and m1.target is not none and m2.target is not none
+             and m1.situation == m2.situation
+             and m2.target != m2.desired
+             and not m2.waiting }}
+    then:
+      - action: number.set_value
+        target:
+          entity_id: "{{ limit_entity }}"
+        data:
+          value: "{{ m2.target }}"
+        continue_on_error: true
+      - if:
+          - condition: template
+            value_template: >-
+              {{ notify_entity != '' and (m2.desired >= 100 or m2.target >= 100) }}
+        then:
+          - action: notify.send_message
+            target:
+              entity_id: "{{ notify_entity }}"
+            data:
+              title: "Power limit {{ m2.target }} %"
+              message: >-
+                {{ 'Exporting to the grid costs money now' if m2.target < 100 else 'Back to normal' }}.
+                Export price {{ m2.export_price if m2.export_price is not none else 'unknown' }}.
+            continue_on_error: true

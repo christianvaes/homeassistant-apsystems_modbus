@@ -16,14 +16,16 @@ Features:
 
 - **One device for the whole system (the ECU)** with current solar power,
   energy today, lifetime energy for the Energy dashboard, highest power ever
-  measured and inverters online.
-- **One device per microinverter** with power, energy today, AC voltage and
-  current, frequency, temperature, status and event code. Each panel gets its
-  own power, voltage and current.
-- **Control: power limit and inverter output.** Curtail the output of all
+  measured, inverters online, grid connection and last data update.
+- **One device per microinverter** with online, power, energy today, AC
+  voltage and current, frequency, temperature, status and event code. Each
+  panel gets its own power, voltage and current.
+- **Control: Power limit and Inverter output.** Curtail the output of all
   inverters, in percent or in kW, or turn them all off. By hand or from
-  an automation. With a dynamic tariff you can stop at negative prices and go
-  back to full power when they are positive again.
+  an automation.
+- **[Fully automatic dynamic tariff control](#fully-automatic-dynamic-tariff-control).**
+  A blueprint that turns your inverters off when the import price goes below 0,
+  and limits them to what your home uses when exporting costs money.
 - **Setup**: the ECU is discovered on your network and the inverters are found
   automatically.
 
@@ -42,7 +44,7 @@ Supported ECUs have a SunSpec logo on the device.
 
 | Inverter | Status |
 |---|---|
-| DS3, DS3-L | Tested, with power limit and Inverter output |
+| DS3, DS3-L | Tested, with Power limit and Inverter output |
 | QT2 (three-phase) | Should work, [not yet confirmed](https://github.com/christianvaes/homeassistant-apsystems_modbus/issues/7) |
 | QS1 | Works, [reported by a user](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2#discussioncomment-19124766) |
 | YC600 | Works, [reported by users](https://github.com/christianvaes/homeassistant-apsystems_modbus/discussions/2#discussioncomment-19124766), also with [Inverter output](https://gathering.tweakers.net/forum/list_message/86436202#86436202) |
@@ -64,7 +66,9 @@ Troubleshooting).
    - Go to *Workspace → Modbus settings* (in some app versions *Modbus
      Configuration*), switch Modbus on, give every inverter an address (1, 2,
      3, …) and save.
-3. With Modbus on, APsystems features such as Dynamic Tariff stop working.
+3. With Modbus on, APsystems features such as Dynamic Tariff stop working. The
+   [blueprint for dynamic tariffs](#fully-automatic-dynamic-tariff-control)
+   takes over.
 4. Let **nothing else talk to the ECU over Modbus**. In tests a second
    connection made the ECU stop answering the integration.
 5. Home Assistant 2026.10.0 or newer.
@@ -83,7 +87,7 @@ Devices & services*, or add it yourself with the IP address of the ECU (port
 [![Open your Home Assistant instance and start setting up APsystems Modbus.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=apsystems_modbus)
 
 Leave the inverter addresses empty to find the inverters automatically. Enter
-the installation power (kW) to get the most out of the power limit, and the
+the installation power (kW) to get the most out of Power limit, and the
 lifetime energy from the EMA app (kWh) if the counter should continue from
 there. Both can also be set later under *Configure*.
 
@@ -129,28 +133,8 @@ whole percent. 100 % is no limit.
 
 <img src="images/ecu.png" alt="ECU device with inverter output and the power limit in percent and in kW" width="360">
 
-Example: export as little as possible at negative feed-in prices. Replace the
-entity IDs with yours.
-
-```yaml
-automation:
-  - alias: Solar panels limited at negative feed-in price
-    triggers:
-      - trigger: numeric_state
-        entity_id: sensor.feed_in_price
-        below: 0
-        id: "off"
-      - trigger: numeric_state
-        entity_id: sensor.feed_in_price
-        above: 0
-        id: "on"
-    actions:
-      - action: number.set_value
-        target:
-          entity_id: number.apsystems_ecu_power_limit
-        data:
-          value: "{{ 0 if trigger.id == 'off' else 100 }}"
-```
+To steer the limit on the electricity price, use the
+[blueprint](#fully-automatic-dynamic-tariff-control).
 
 ## Inverter output
 
@@ -168,47 +152,35 @@ when energy prices are negative.
 - If the inverters stay off after you turn the switch on, turn it off and on
   again.
 
-Example: stop all production at negative energy prices, also after a restart
-of Home Assistant. It also sets the power limit to 0 %, so little gets through
-if a command fails. Replace the entity IDs with yours.
+To turn the inverters off at negative prices, use the
+[blueprint](#fully-automatic-dynamic-tariff-control).
 
-```yaml
-automation:
-  - alias: Solar panels off at negative energy price
-    triggers:
-      - trigger: numeric_state
-        entity_id: sensor.energy_price
-        below: 0
-      - trigger: numeric_state
-        entity_id: sensor.energy_price
-        above: 0
-      - trigger: homeassistant
-        event: start
-    actions:
-      - choose:
-          - conditions:
-              - condition: numeric_state
-                entity_id: sensor.energy_price
-                below: 0
-            sequence:
-              - action: number.set_value
-                target:
-                  entity_id: number.apsystems_ecu_power_limit
-                data:
-                  value: 0
-              - action: switch.turn_off
-                target:
-                  entity_id: switch.apsystems_ecu_inverter_output
-        default:
-          - action: number.set_value
-            target:
-              entity_id: number.apsystems_ecu_power_limit
-            data:
-              value: 100
-          - action: switch.turn_on
-            target:
-              entity_id: switch.apsystems_ecu_inverter_output
-```
+## Fully automatic dynamic tariff control
+
+A blueprint for dynamic tariffs. It turns Inverter output off when the import
+price goes below 0. When exporting costs you money, it lowers the Power limit to
+what your home uses. At all other times your solar panels run normally.
+
+[![Open your Home Assistant instance and show the blueprint import dialog with this blueprint.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fchristianvaes%2Fhomeassistant-apsystems_modbus%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fapsystems_modbus%2Fdynamic_tariffs.yaml)
+
+<img src="images/blueprint-flow.svg" alt="The blueprint checks in this order: sun down, import price below 0, price unknown, exporting costs money. The first yes decides what happens to Inverter output and Power limit." width="680">
+
+| Field | What to fill in |
+|---|---|
+| ECU | Your ECU |
+| Import price per kWh | Total price you pay per kWh, including tax and costs |
+| Export price per kWh | What you get per kWh. Empty if the same as import |
+| Start below this export price | Default -0.01 |
+| Grid power | Your grid meter, for example a P1 meter |
+| Custom power demand | Instead of grid power, to give a battery or car solar power first |
+| Minimum time between limit changes | Default 30 minutes |
+| Notify | Optional. A message when the output switches or a limit starts or ends |
+
+- To limit the output, first enter the installation power (Settings → Devices &
+  services → APsystems Modbus → Configure).
+- Turn the automation off when you want to set Power limit or Inverter output
+  yourself. Use one automation per ECU.
+- Not yet tested during a real period of negative prices.
 
 ## Good to know
 
@@ -257,7 +229,7 @@ integration again afterwards.
 
 ## Removing the integration
 
-Set the power limit to 100 %, turn Inverter output on and check that all
+Set Power limit to 100 %, turn Inverter output on and check that all
 inverters deliver power again. Then delete the integration under *Settings →
 Devices & services*. If you forget, the integration tries to do both when it
 is removed.
