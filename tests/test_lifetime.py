@@ -267,6 +267,7 @@ async def test_start_over_keeps_peak_power(
 
 DAY_1 = date(2026, 10, 13)
 DAY_2 = date(2026, 10, 14)
+DAY_3 = date(2026, 10, 15)
 
 
 def read(ledger: EnergyLedger, day: date, *watt_hours: float) -> float:
@@ -286,6 +287,64 @@ async def test_reset_missed_while_not_read_is_still_booked(
     # Not read at night; the next day's counter is already above yesterday's.
     assert read(ledger, DAY_2, 2000) == 1100
     assert read(ledger, DAY_2, 2050) == 1100 + 2050
+
+
+async def test_yesterdays_end_read_late_is_counted_once(
+    ledger: EnergyLedger,
+) -> None:
+    read(ledger, DAY_1, 900)
+    # The evening was missed. After 04:00 the ECU still shows yesterday's end
+    # until it restarts its counters.
+    assert read(ledger, DAY_2, 1100, 1100, 1100, 0, 0, 50, 300) == 1100 + 300
+
+
+async def test_a_day_read_only_after_sunset_is_kept(ledger: EnergyLedger) -> None:
+    read(ledger, DAY_1, 900)
+    # Not read again until after sunset on the next day: its end stays flat.
+    read(ledger, DAY_2, 2000, 2000)
+    assert read(ledger, DAY_3, 2000, 0, 0, 50, 300) == 900 + 2000 + 300
+
+
+async def test_a_day_read_only_after_sunset_is_kept_without_a_drop(
+    ledger: EnergyLedger,
+) -> None:
+    read(ledger, DAY_1, 900)
+    read(ledger, DAY_2, 2000, 2000)
+    # The next morning was missed too; the counter is already above 2000.
+    assert read(ledger, DAY_3, 2500, 2600) == 900 + 2000 + 2600
+
+
+async def test_a_stray_reading_after_a_late_day_end_is_dropped(
+    ledger: EnergyLedger,
+) -> None:
+    read(ledger, DAY_1, 900)
+    read(ledger, DAY_2, 2000, 2000)
+    assert read(ledger, DAY_3, 5000, 0, 50) == 900 + 2000 + 50
+
+
+async def test_a_day_end_read_before_a_restart_is_kept(
+    hass: HomeAssistant, ledger: EnergyLedger
+) -> None:
+    read(ledger, DAY_1, 900)
+    read(ledger, DAY_2, 2000, 2000)
+    await ledger.async_save()
+
+    restored = EnergyLedger(hass, KEY)
+    await restored.async_load()
+    assert read(restored, DAY_3, 0, 50) == 900 + 2000 + 50
+
+
+async def test_the_same_reading_then_going_up_is_today(ledger: EnergyLedger) -> None:
+    read(ledger, DAY_1, 900)
+    # An ECU round without new values, then the counter goes on.
+    assert read(ledger, DAY_2, 2000, 2000, 2050) == 900 + 2050
+
+
+async def test_twice_the_same_reading_below_yesterday_is_no_day_end(
+    ledger: EnergyLedger,
+) -> None:
+    read(ledger, DAY_1, 1100)
+    assert read(ledger, DAY_2, 600, 600, 0, 0, 50) == 1100 + 50
 
 
 async def test_drop_then_rise_above_yesterday_is_a_new_day(

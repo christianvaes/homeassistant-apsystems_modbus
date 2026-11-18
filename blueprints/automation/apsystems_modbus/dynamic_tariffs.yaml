@@ -22,7 +22,8 @@ blueprint:
     limit goes back to 100 %.
 
     Turn this automation off if you want to set Inverter output or the Power limit
-    yourself.
+    yourself. Both stay as they are, so turn Inverter output on and set the Power
+    limit to 100 % when you are done.
   domain: automation
   author: christianvaes
   source_url: https://github.com/christianvaes/homeassistant-apsystems_modbus/blob/main/blueprints/automation/apsystems_modbus/dynamic_tariffs.yaml

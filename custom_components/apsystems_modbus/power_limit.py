@@ -22,14 +22,18 @@ only the last one partly shows, as a failed poll. So:
 * While a choice exists, the ECU is made to follow it: once two polls in a
   row read something else, the choice is written again, at most once per
   ten minutes and at most ``MAX_REWRITES`` times; then it waits for a new
-  choice. A failed user write is retried after the next healthy poll, also
-  at most once per ten minutes. A write the ECU did not answer may have
-  arrived all the same. When the ECU then reports the choice, that read
-  counts as the write. Before the limit was read once, a choice waits for
-  that read, so nothing is written blind.
+  choice, or until the ECU reports the choice again. A failed user write is
+  retried after the next healthy poll, also at most once per ten minutes. A
+  write the ECU did not answer may have arrived all the same. When the ECU
+  then reports the choice, that read counts as the write. Before the limit
+  was read once, a choice waits for that read, so nothing is written blind.
 * The ECU sometimes falls back to its factory table (30 % with the flag as a
   raw 1; written values read back as ASCII). The inverters do not follow it,
   so writing the choice back only repairs the table and plans no refreshes.
+* While every inverter is off, the ECU may report another limit (seen in the
+  evenings). No inverter follows it, so it is not written over until an
+  inverter is back, and only shown when nothing was shown yet. A choice that
+  did not reach the ECU is still sent again.
 * The choice is sent again ("refreshed") after the next ECU round and an
   hour after that, once after Home Assistant starts, and, below 100, after
   the connection to the ECU broke, which is how a restart of the ECU shows.
@@ -458,6 +462,14 @@ class PowerLimit:
                 await self._async_finish_refresh(now)
             return
 
+        if self._at_night(data):
+            # Each day gets fresh chances: an ECU that restarted overnight
+            # clears the limit on the inverters without showing it.
+            self.overshoot_refreshes = 0
+            if reported != self.desired and not self.pending:
+                if self.shown is None:  # after a start: nothing else to show
+                    self._adopt(reported)
+                return
         self._follow(reported, now)
         if not busy:
             await self._async_keep_aligned(data, reported, now)
@@ -488,7 +500,6 @@ class PowerLimit:
         self, data: EcuData, reported: int, now: datetime
     ) -> None:
         """Write whatever is needed to keep the ECU on the chosen limit."""
-        self._reset_overshoot_at_night(data)
         if self._lock.locked():
             # A change of the user is being written. This poll read the value
             # before it, so the next poll judges again.
@@ -587,17 +598,12 @@ class PowerLimit:
             return next_round(written) + settle
         return written + REFRESH_DELAY
 
-    def _reset_overshoot_at_night(self, data: EcuData) -> None:
-        """Give each day fresh chances.
-
-        An ECU that restarted overnight clears the limit on the inverters
-        without showing it.
-        """
+    def _at_night(self, data: EcuData) -> bool:
+        """Whether no inverter read this poll is on the grid."""
         inverters = self._coordinator.inverters
-        if data.available and not any(
+        return not any(
             inverters[unit].measurements.is_online for unit in data.available
-        ):
-            self.overshoot_refreshes = 0
+        )
 
     def _overshooting(self, data: EcuData) -> set[int]:
         """Return the units delivering clearly more than the chosen limit."""
@@ -735,8 +741,10 @@ class PowerLimit:
         if self.rewrites >= MAX_REWRITES:
             _LOGGER.warning(
                 "The ECU keeps reporting a power limit of %s %% instead of %s %%; "
-                "no more writes until the limit is chosen again",
+                "no more corrections until the limit is set again or the ECU "
+                "reports %s %%",
                 reported,
+                desired,
                 desired,
             )
             return

@@ -44,7 +44,7 @@ rules:
   docs-installation-parameters: done
   entity-unavailable:
     status: done
-    comment: Every entity follows the coordinator, except the power limit numbers and the inverter output switch. Those stay available on purpose, because Home Assistant skips actions on unavailable entities and a release or turning the output on must always be tried.
+    comment: Every entity follows the coordinator, except the power limit numbers and the inverter output switch. Those stay available on purpose, because Home Assistant skips actions on unavailable entities and a release or turning the output on must always be tried. Lifetime energy, Lifetime peak power and Last data update keep their last known value, so they stay available too.
   integration-owner: done
   log-when-unavailable: done
   parallel-updates: done
@@ -77,7 +77,7 @@ rules:
   reconfiguration-flow: done
   repair-issues:
     status: done
-    comment: Inverters that keep delivering above the power limit after two refreshes raise a repair issue to check the installation power, and so does an inverter that got another address in EMA Manager. A replaced inverter on a known address simply continues under its device.
+    comment: Inverters that keep delivering above the power limit after two refreshes raise a repair issue to check the installation power, and so does an inverter that got another address in EMA Manager. A replaced inverter on a known address simply continues under its device. An ECU that does not answer for two hours raises a repair issue as well.
   stale-devices: done
 
   # Platinum

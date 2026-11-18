@@ -148,7 +148,7 @@ when energy prices are negative.
   inverter that starts anyway is turned off again at the next update.
 - The switch shows your choice, not what the inverters do. Check Power.
 - The switch stays off after a restart of Home Assistant. If Home Assistant
-  stops, the inverters come back on by themselves.
+  stops, an ECU-R turns the inverters back on by itself.
 - If the inverters stay off after you turn the switch on, turn it off and on
   again.
 
@@ -179,7 +179,8 @@ what your home uses. At all other times your solar panels run normally.
 - To limit the output, first enter the installation power (Settings → Devices &
   services → APsystems Modbus → Configure).
 - Turn the automation off when you want to set Power limit or Inverter output
-  yourself. Use one automation per ECU.
+  yourself. Both stay as they are, so set them back when you are done. Use one
+  automation per ECU.
 - Not yet tested during a real period of negative prices.
 
 ## Good to know

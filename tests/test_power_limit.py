@@ -478,7 +478,10 @@ async def test_failed_corrective_writes_stop_after_three(
             freezer.tick(REWRITE_INTERVAL + timedelta(seconds=1))
 
     assert write.await_count == 3
-    assert "no more writes until the limit is chosen again" in caplog.text
+    assert (
+        "no more corrections until the limit is set again or the ECU reports"
+        in caplog.text
+    )
 
 
 async def test_unanswered_corrective_writes_keep_trying(
@@ -544,7 +547,10 @@ async def test_a_stubborn_ecu_is_not_written_over_and_over(
         freezer.tick(REWRITE_INTERVAL + timedelta(seconds=1))
     # Three tries, then it waits for the user.
     assert len(writes) == 6
-    assert "no more writes until the limit is chosen again" in caplog.text
+    assert (
+        "no more corrections until the limit is set again or the ECU reports"
+        in caplog.text
+    )
 
     # Choosing the same value again tries again, as does a new value.
     await set_limit(hass, 30)
@@ -2461,6 +2467,88 @@ async def test_no_refresh_at_night(
     freezer.tick(REFRESH_DELAY + REFRESH_REPEAT)
     await coordinator.async_refresh()
     assert writes == []
+
+
+def set_online(mock_ecu: MockModbusConnection, online: bool) -> None:
+    """Put both inverters on the grid, or off it for the night."""
+    for unit_id in (1, 2):
+        unit = mock_ecu.for_unit(unit_id)
+        set_float32(unit, 40138, 230.0 if online else 0.0)
+        set_float32(unit, 40146, 50.0 if online else 0.0)
+
+
+@pytest.mark.parametrize("flag_raw", [1, 49])
+async def test_another_limit_at_night_is_neither_shown_nor_written(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+    flag_raw: int,
+) -> None:
+    coordinator = await setup_entry(hass, mock_config_entry)
+    await set_limit(hass, 100)
+    unit = mock_ecu.for_unit(1)
+    writes = record_writes(unit)
+
+    # Seen in the evenings, with the flag as a raw 1 or ASCII "1" (not known).
+    set_online(mock_ecu, False)
+    set_ecu(unit, 30, flag_raw)
+    for _ in range(4):
+        await coordinator.async_refresh()
+        freezer.tick(REWRITE_INTERVAL)
+    assert writes == []
+    assert state_of(hass) == "100"
+
+    # Still 30 % with an inverter back: put right as by day.
+    set_online(mock_ecu, True)
+    await coordinator.async_refresh()
+    assert writes == []
+    await coordinator.async_refresh()
+    assert writes == [(EXPORT_LIMIT_ADDRESS, 1000), (EXPORT_LIMIT_ENABLED_ADDRESS, 0)]
+    assert state_of(hass) == "100"
+
+
+async def test_failed_write_at_night_is_retried_at_night(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    coordinator = await setup_entry(hass, mock_config_entry)
+    unit = mock_ecu.for_unit(1)
+    set_online(mock_ecu, False)
+    await coordinator.async_refresh()
+    writes = record_writes(unit)
+    unit.fail_write(EXPORT_LIMIT_ADDRESS, ModbusTimeoutError())
+    await set_limit(hass, 30)
+
+    unit.fail_write(EXPORT_LIMIT_ADDRESS, None)
+    await coordinator.async_refresh()
+    assert writes == [(EXPORT_LIMIT_ADDRESS, 300), (EXPORT_LIMIT_ENABLED_ADDRESS, 1)]
+    assert coordinator.power_limit.pending is False
+
+
+async def test_another_limit_at_night_is_shown_after_a_start(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+    hass_storage: dict,
+) -> None:
+    mock_config_entry.add_to_hass(hass)
+    store_choice(hass_storage, mock_config_entry, {"desired": 100})
+    unit = mock_ecu.for_unit(1)
+    set_online(mock_ecu, False)
+    set_ecu(unit, 30, 1)
+    writes = record_writes(unit)
+    await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert state_of(hass) == "30"
+    assert writes == []
+
+    # The ECU reports the choice again before the morning.
+    set_ecu(unit, 100, 48)
+    await mock_config_entry.runtime_data.async_refresh()
+    assert state_of(hass) == "100"
 
 
 async def test_no_refresh_while_a_choice_is_pending(

@@ -18,7 +18,8 @@ Readings that do not fit a counter going up wait for the next poll:
   at 04:00 (``ecu_day``). When an inverter was not read across the restart,
   the first reading of a later ECU day may already be above the last one. A
   changed reading on a later ECU day is therefore a new day once the next
-  reading confirms it; a reading back at the old level was stray.
+  reading goes up from it; a reading back at the old level was stray. One
+  that stays the same is the end of a day that was not read in time.
 """
 
 from __future__ import annotations
@@ -66,6 +67,9 @@ class _Counter:
     """Last accepted daily counter."""
     pending: float | None = None
     """A reading that waits for the next poll: a drop or a large jump."""
+    pending_day: str | None = None
+    """ECU day (ISO) on which a reading after a night was read twice, so it
+    is a real counter whose day is not known yet."""
     day: str | None = None
     """ECU day (ISO) on which ``last`` was set; ``None`` for older data."""
 
@@ -141,6 +145,7 @@ class EnergyLedger:
                 base=values.get("base") or 0.0,
                 last=values.get("last"),
                 pending=values.get("pending"),
+                pending_day=values.get("pending_day"),
                 day=values.get("day"),
             )
             for serial, values in data.get("counters", {}).items()
@@ -313,15 +318,32 @@ def _take_after_a_night(
 
     An ECU that restarts its counters late still reports yesterday's counter,
     so the same value is no news. Any other value is a new day once the next
-    reading confirms it by not going down; one stray reading is dropped again.
+    reading confirms it by going up; one stray reading is dropped again.
+
+    A reading above ``last`` that stays the same is a day's end that was not
+    read in time. A drop on the same ECU day shows it was the end of the day
+    of ``last``; a later ECU day shows it was the end of the day it was read.
     """
-    pending = counter.pending
-    counter.pending = None
+    pending, seen_on = counter.pending, counter.pending_day
+    counter.pending = counter.pending_day = None
+    if (
+        pending is not None
+        and seen_on is not None
+        and pending > last
+        and (seen_on < today or watt_hours < pending)
+    ):
+        if seen_on < today:
+            counter.base += last
+            counter.day = seen_on
+        counter.last = last = pending
+        pending = None
     if watt_hours == last:
         return
-    if pending is not None and watt_hours >= pending:
+    if pending is not None and watt_hours > pending:
         counter.base += last
         counter.last = watt_hours
         counter.day = today
         return
+    if watt_hours == pending:
+        counter.pending_day = today
     counter.pending = watt_hours
