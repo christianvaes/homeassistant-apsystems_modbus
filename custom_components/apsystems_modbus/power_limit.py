@@ -94,7 +94,7 @@ from .ecu import (
 )
 
 if TYPE_CHECKING:
-    from .coordinator import EcuCoordinator, EcuData
+    from .coordinator import EcuCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -433,14 +433,15 @@ class PowerLimit:
                 raise
         self._written[address] = value
 
-    async def async_after_poll(self, data: EcuData) -> None:
+    async def async_after_poll(self, available: set[int]) -> None:
         """Update the shown value and make the ECU follow the chosen one.
 
         Called by the coordinator once per poll, also a failed one, outside its
         ``write_lock``: after the reads, or before the inverters that went
-        unanswered last time. Only this poll's reads count.
+        unanswered last time. ``available`` holds the units read this poll;
+        only their values count.
         """
-        if self.control.unit_id not in data.available:
+        if self.control.unit_id not in available:
             return
         reported = effective_limit(self.control.measurements)
         if reported is None:
@@ -462,7 +463,7 @@ class PowerLimit:
                 await self._async_finish_refresh(now)
             return
 
-        if self._at_night(data):
+        if self._at_night(available):
             # Each day gets fresh chances: an ECU that restarted overnight
             # clears the limit on the inverters without showing it.
             self.overshoot_refreshes = 0
@@ -472,7 +473,7 @@ class PowerLimit:
                 return
         self._follow(reported, now)
         if not busy:
-            await self._async_keep_aligned(data, reported, now)
+            await self._async_keep_aligned(available, reported, now)
 
     def _follow(self, reported: int, now: datetime) -> None:
         """Update the shown value from the readback of one poll."""
@@ -497,7 +498,7 @@ class PowerLimit:
             self.deviations = 1
 
     async def _async_keep_aligned(
-        self, data: EcuData, reported: int, now: datetime
+        self, available: set[int], reported: int, now: datetime
     ) -> None:
         """Write whatever is needed to keep the ECU on the chosen limit."""
         if self._lock.locked():
@@ -535,7 +536,7 @@ class PowerLimit:
             # inverters cannot help; the rewrite above deals with it.
             return
 
-        self._check_overshoot(data, now)
+        self._check_overshoot(available, now)
 
         # A pending choice goes through the rewrite above, not a refresh.
         refresh_due = self._refresh.next_at
@@ -545,13 +546,13 @@ class PowerLimit:
         # stays dark all day (a broken panel) must not hold the others up.
         # Judged on this cycle's reads only, never on older values.
         inverters = self._coordinator.inverters
-        online = sum(inverters[unit].measurements.is_online for unit in data.available)
-        if online == len(data.available) or (
+        online = sum(inverters[unit].measurements.is_online for unit in available)
+        if online == len(available) or (
             online > 0 and now >= refresh_due + REFRESH_REPEAT
         ):
             await self._async_start_refresh(now)
 
-    def _check_overshoot(self, data: EcuData, now: datetime) -> None:
+    def _check_overshoot(self, available: set[int], now: datetime) -> None:
         """Refresh at once when an inverter clearly delivers above the limit.
 
         Only an excess is a sure sign: delivering less can be a cloud. The
@@ -561,7 +562,7 @@ class PowerLimit:
         """
         if self.pending:
             return  # The chosen value has not reached the ECU yet.
-        over = self._overshooting(data)
+        over = self._overshooting(available)
         # Without a write since the start, the last write counts as long ago.
         if (written := self._last_written) is not None:
             settled = self._settled_after(written)
@@ -598,14 +599,12 @@ class PowerLimit:
             return next_round(written) + settle
         return written + REFRESH_DELAY
 
-    def _at_night(self, data: EcuData) -> bool:
+    def _at_night(self, available: set[int]) -> bool:
         """Whether no inverter read this poll is on the grid."""
         inverters = self._coordinator.inverters
-        return not any(
-            inverters[unit].measurements.is_online for unit in data.available
-        )
+        return not any(inverters[unit].measurements.is_online for unit in available)
 
-    def _overshooting(self, data: EcuData) -> set[int]:
+    def _overshooting(self, available: set[int]) -> set[int]:
         """Return the units delivering clearly more than the chosen limit."""
         total = self.installation_power
         if total is None or self.desired is None or self.desired >= NO_LIMIT:
@@ -614,7 +613,7 @@ class PowerLimit:
         allowed = per_inverter * (self.desired / 100 + OVERSHOOT_MARGIN)
         allowed += OVERSHOOT_MARGIN_W
         over = set()
-        for unit_id in data.available:
+        for unit_id in available:
             power = self._coordinator.inverters[unit_id].measurements.ac_power
             if power is not None and allowed < power <= MAX_INVERTER_POWER:
                 over.add(unit_id)

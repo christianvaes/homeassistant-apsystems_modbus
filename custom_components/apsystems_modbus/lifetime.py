@@ -127,6 +127,11 @@ class EnergyLedger:
         return bool(self._counters) or self._reported > 0 or self.peak_power > 0
 
     @property
+    def start_pending(self) -> bool:
+        """Whether a requested start value still waits to be applied."""
+        return self._calibrate_to is not None
+
+    @property
     def lifetime(self) -> float:
         """Lifetime energy in Wh; never lower than reported before."""
         return self._reported

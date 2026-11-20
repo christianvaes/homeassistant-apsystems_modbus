@@ -49,6 +49,9 @@ class LedgerSensorDescription(SensorEntityDescription):
     """A total kept by the integration itself, available from storage."""
 
     value_fn: Callable[[EnergyLedger], float | None]
+    waits_for_start: bool = False
+    """Unavailable while a start value waits to be applied. The value before
+    it would make the jump to the start value count as production."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -266,6 +269,7 @@ LEDGER_SENSORS: tuple[LedgerSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         suggested_display_precision=1,
         value_fn=lambda ledger: _kwh(ledger.lifetime),
+        waits_for_start=True,
     ),
     LedgerSensorDescription(
         key="peak_power",
@@ -401,8 +405,11 @@ class LedgerSensor(EcuEntity, SensorEntity):
 
     @property
     def available(self) -> bool:
-        """Available as soon as anything was counted or set."""
-        return self.coordinator.ledger.has_data
+        """Available once anything was counted or set and no start value waits."""
+        ledger = self.coordinator.ledger
+        if self.entity_description.waits_for_start and ledger.start_pending:
+            return False
+        return ledger.has_data
 
     @property
     def native_value(self) -> StateType:

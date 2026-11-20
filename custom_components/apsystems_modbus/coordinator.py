@@ -283,8 +283,8 @@ class EcuCoordinator(DataUpdateCoordinator[EcuData]):
             round(elapsed / len(data.available), 1) if data.available else None
         )
         self.poll_healthy = self._judge(data, waiting)
-        await self.power_limit.async_after_poll(data)
-        await self.inverter_output.async_after_poll(data)
+        await self.power_limit.async_after_poll(data.available)
+        await self.inverter_output.async_after_poll(data.available)
         if self.link_busy:
             self.poll_healthy = False
 

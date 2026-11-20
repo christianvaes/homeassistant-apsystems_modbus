@@ -8,6 +8,9 @@
     "@christianvaes"
   ],
   "config_flow": true,
+  "connectivity": [
+    "modbus"
+  ],
   "dependencies": [
     "modbus"
   ],
@@ -28,5 +31,5 @@
     "tmodbus"
   ],
   "requirements": [],
-  "version": "0.7.0"
+  "version": "0.7.1"
 }

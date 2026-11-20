@@ -15,6 +15,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.apsystems_modbus.const import CONF_INVERTERS, DOMAIN
+from custom_components.apsystems_modbus.lifetime import async_request_start
 
 from .conftest import INVERTERS, set_float32
 
@@ -362,6 +363,28 @@ async def test_lifetime_survives_removing_and_adding_again(
     await setup_entry(hass, again)
     lifetime = hass.states.get("sensor.apsystems_ecu_lifetime_energy")
     assert float(lifetime.state) == pytest.approx(21_971.04, abs=0.001)
+
+
+async def test_lifetime_waits_for_its_start_value(
+    hass: HomeAssistant,
+    mock_ecu: MockModbusConnection,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    await async_request_start(hass, "704000000001", 21_971_040)
+    # One inverter is not read at first, so the start value waits. Showing
+    # the day's counters meanwhile would look like 21 MWh produced at once.
+    mock_ecu.for_unit(2).fail_requests(ModbusTimeoutError())
+    await setup_entry(hass, mock_config_entry)
+    entity_id = "sensor.apsystems_ecu_lifetime_energy"
+    assert hass.states.get(entity_id).state == STATE_UNAVAILABLE
+    assert hass.states.get("sensor.apsystems_ecu_lifetime_peak_power").state != (
+        STATE_UNAVAILABLE
+    )
+
+    mock_ecu.for_unit(2).fail_requests(None)
+    await mock_config_entry.runtime_data.async_refresh()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert float(hass.states.get(entity_id).state) == pytest.approx(21_971.04)
 
 
 async def test_energy_today_follows_the_ecu_and_lifetime_stays_guarded(

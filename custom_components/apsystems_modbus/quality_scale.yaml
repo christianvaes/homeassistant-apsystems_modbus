@@ -38,7 +38,9 @@ rules:
   unique-config-entry: done
 
   # Silver
-  action-exceptions: done
+  action-exceptions:
+    status: done
+    comment: An invalid value raises an error. A failed write raises none on purpose. The choice is kept and sent again, so an automation goes on.
   config-entry-unloading: done
   docs-configuration-parameters: done
   docs-installation-parameters: done

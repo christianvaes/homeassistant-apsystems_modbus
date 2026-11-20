@@ -51,7 +51,7 @@ from .const import DOMAIN, MAX_INVERTER_POWER
 from .ecu import GRID_CONNECTION_ADDRESS, Inverter
 
 if TYPE_CHECKING:
-    from .coordinator import EcuCoordinator, EcuData
+    from .coordinator import EcuCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -172,8 +172,11 @@ class InverterOutput:
                 return
             self.catch_up = False
 
-    async def async_after_poll(self, data: EcuData) -> None:
-        """Send a choice that did not arrive, or off again if an inverter delivers."""
+    async def async_after_poll(self, available: set[int]) -> None:
+        """Send a choice that did not arrive, or off again if an inverter delivers.
+
+        ``available`` holds the units read this poll.
+        """
         healthy = self._coordinator.poll_healthy
         if self.enabled:
             if self.catch_up and healthy:
@@ -182,7 +185,7 @@ class InverterOutput:
         if not healthy or not sun.is_up(self._coordinator.hass):
             return
         if not self.catch_up:
-            if not (delivering := self._delivering(data)):
+            if not (delivering := self._delivering(available)):
                 return
             _LOGGER.debug(
                 "Inverter output: units %s deliver while off, writing off again",
@@ -193,12 +196,12 @@ class InverterOutput:
             self.catch_up = True
         await self._async_send_off(due=None)
 
-    def _delivering(self, data: EcuData) -> list[tuple[int, float]]:
+    def _delivering(self, available: set[int]) -> list[tuple[int, float]]:
         """Return the inverters read in this poll that deliver power."""
         inverters = self._coordinator.inverters
         return [
             (unit_id, power)
-            for unit_id in sorted(data.available)
+            for unit_id in sorted(available)
             if LEAK_POWER
             < (power := inverters[unit_id].measurements.ac_power or 0.0)
             <= MAX_INVERTER_POWER
