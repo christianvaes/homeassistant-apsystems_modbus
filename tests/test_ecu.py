@@ -203,7 +203,7 @@ async def test_write_export_limit_out_of_range(
         ("DS3-L", 2),
         ("YC600", 2),
         ("QT2", 4),
-        ("DS3D", 4),
+        ("DS3D", 2),
         ("NEW1", 4),  # an unknown model keeps every panel
         (None, 4),
     ],

@@ -56,7 +56,7 @@ MESSAGE_SPACING = 0.3
 """Quiet time around every request, so a busy ECU is not flooded."""
 
 MAX_CHANNELS = 4
-FOUR_CHANNEL_MODELS = ("QT2", "QS1", "DS3D")
+FOUR_CHANNEL_MODELS = ("QT2", "QS1")
 TWO_CHANNEL_MODELS = ("DS3", "YC600")
 """Known models. An unknown model gets all four channels, so none is missing."""
 SERIAL_PATTERN = re.compile(r"[0-9A-Za-z]{1,32}")
